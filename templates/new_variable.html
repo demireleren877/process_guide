@@ -15,10 +15,13 @@
                 <div class="mb-3">
                     <label for="var_type" class="form-label">Değişken Tipi</label>
                     <select class="form-select" id="var_type" name="var_type" required>
+                        {% if is_mail_step %}
+                        <option value="mail_config">Mail Konfigürasyonu</option>
+                        {% else %}
                         <option value="string">Metin</option>
                         <option value="number">Sayı</option>
                         <option value="boolean">Boolean</option>
-                        <option value="mail_config">Mail Konfigürasyonu</option>
+                        {% endif %}
                     </select>
                 </div>
 

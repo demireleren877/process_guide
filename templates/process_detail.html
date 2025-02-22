@@ -44,7 +44,7 @@
                         <td>
                             <div class="d-flex align-items-center">
                                 {% if step.parent_id %}
-                                <div style="width: {{ 20 * (step.get_full_order().count('.')) }}px"></div>
+                                <div class="step-indent" data-level="{{ step.get_full_order().count('.') }}"></div>
                                 {% endif %}
                                 <span>{{ step.get_full_order() }}</span>
                             </div>
@@ -64,62 +64,65 @@
                                             <i class="bi bi-plus-lg"></i> Alt Adım
                                         </a>
                                         {% endif %}
-                                        {% if step.type in ['python_script', 'sql_script'] %}
+                                        {% if step.type in ['python_script', 'sql_script', 'mail'] %}
                                         <button type="button" class="btn btn-sm btn-outline-secondary show-variables"
                                             data-step-id="{{ step.id }}">
-                                            <i class="bi bi-chevron-right me-1"></i> Değişkenler ({{
-                                            step.variables|length }})
+                                            <i class="bi bi-chevron-right me-1"></i> Değişkenler (<span class="variable-count">{{
+                                            step.variables|length }}</span>)
                                         </button>
                                         <a href="{{ url_for('new_variable', step_id=step.id) }}"
                                             class="btn btn-sm btn-outline-secondary">
                                             <i class="bi bi-plus-lg"></i> Değişken
                                         </a>
                                         {% endif %}
-                                        {% if step.type == 'mail' %}
-                                        <form action="{{ url_for('add_mail_variables', step_id=step.id) }}"
-                                            method="POST" class="d-inline">
-                                            <button type="submit" class="btn btn-sm btn-outline-secondary">
-                                                <i class="bi bi-envelope"></i> Mail Değişkenleri Ekle
-                                            </button>
-                                        </form>
-                                        {% endif %}
                                     </div>
                                 </div>
                                 {% if step.variables %}
                                 <div class="d-none" id="variables-data-{{ step.id }}">
                                     {% for var in step.variables %}
-                                    <div class="variable-item mb-3">
-                                        <div class="d-flex align-items-center justify-content-between w-100">
+                                    {% if var.var_type == 'mail_config' %}
+                                    {% set config = (var.default_value or '{}')|from_json %}
+                                    <div class="card mb-3 mail-variable-card" data-variable-id="{{ var.id }}">
+                                        <div class="card-header d-flex justify-content-between align-items-center">
+                                            <h6 class="mb-0">{{ var.name }}</h6>
                                             <div class="d-flex align-items-center">
-                                                <span class="variable-name">{{ var.name }}</span>
-                                                <span class="badge bg-secondary ms-2">{{ var.var_type }}</span>
-                                            </div>
-                                            <div class="d-flex align-items-center gap-2">
-                                                <div class="variable-value-container">
-                                                    {% if var.var_type == 'boolean' %}
-                                                    <div class="form-check form-switch">
-                                                        <input class="form-check-input" type="checkbox"
-                                                            name="variable_{{ var.id }}" value="true" {% if
-                                                            var.default_value=='true' %}checked{% endif %}>
-                                                    </div>
-                                                    {% elif var.var_type == 'number' %}
-                                                    <input type="number" class="form-control form-control-sm"
-                                                        name="variable_{{ var.id }}"
-                                                        value="{{ var.default_value or '0' }}">
-                                                    {% else %}
-                                                    <input type="text" class="form-control form-control-sm"
-                                                        name="variable_{{ var.id }}"
-                                                        value="{{ var.default_value or '' }}"
-                                                        placeholder="Değer girin...">
-                                                    {% endif %}
-                                                </div>
-                                                <button type="button" class="btn btn-sm btn-danger delete-variable"
-                                                    data-variable-id="{{ var.id }}">
+                                                {{ render_mail_status(var, config) }}
+                                                <button type="button" class="btn btn-sm btn-danger delete-variable" data-variable-id="{{ var.id }}">
                                                     <i class="bi bi-trash"></i>
                                                 </button>
                                             </div>
                                         </div>
+                                        <div class="card-body mail-details d-none">
+                                            <div class="mb-3">
+                                                <label class="form-label">Alıcılar</label>
+                                                <input type="text" class="form-control" name="mail_to_{{ var.id }}"
+                                                    value="{{ config.get('to', [])|join(', ') }}">
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label">CC</label>
+                                                <input type="text" class="form-control" name="mail_cc_{{ var.id }}"
+                                                    value="{{ config.get('cc', [])|join(', ') }}">
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label">Konu</label>
+                                                <input type="text" class="form-control"
+                                                    name="mail_subject_{{ var.id }}"
+                                                    value="{{ config.get('subject', '') }}">
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label">İçerik</label>
+                                                <textarea class="form-control" name="mail_body_{{ var.id }}"
+                                                    rows="4">{{ config.get('body', '') }}</textarea>
+                                            </div>
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox"
+                                                    name="mail_active_{{ var.id }}" {% if config.get('active',
+                                                    False) %}checked{% endif %}>
+                                                <label class="form-check-label">Aktif/Pasif</label>
+                                            </div>
+                                        </div>
                                     </div>
+                                    {% endif %}
                                     {% endfor %}
                                 </div>
                                 {% endif %}
@@ -193,9 +196,15 @@
                         <td>
                             <div class="btn-group">
                                 <button class="btn btn-sm btn-outline-primary execute-step" data-step-id="{{ step.id }}"
-                                    title="Çalıştır">
+                                    {% if not process.is_started %}disabled{% endif %} title="Çalıştır">
                                     <i class="bi bi-play-fill"></i>
                                 </button>
+                                {% if step.type == 'mail' %}
+                                <button class="btn btn-sm btn-outline-info check-mail-status" data-step-id="{{ step.id }}"
+                                    title="Mail Durumunu Güncelle">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                                {% endif %}
                                 <form action="{{ url_for('delete_step', step_id=step.id) }}" method="POST"
                                     onsubmit="return confirm('Bu adımı ve tüm alt adımlarını silmek istediğinizden emin misiniz?')"
                                     class="d-inline">
@@ -222,8 +231,8 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div id="resultSuccess" class="alert alert-success d-none"></div>
-                <div id="resultError" class="alert alert-danger d-none"></div>
+                <div id="resultSuccess" class="alert alert-success d-none" style="word-break: break-all;"></div>
+                <div id="resultError" class="alert alert-danger d-none" style="word-break: break-all;"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
@@ -260,14 +269,12 @@
 <div class="modal fade" id="mailModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
-            <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title">
-                    <i class="bi bi-envelope me-2"></i>Son Gelen Mailler
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            <div class="modal-header">
+                <h5 class="modal-title">Son Gelen Mailler</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body p-0">
-                <div id="mailList" class="list-group list-group-flush">
+            <div class="modal-body">
+                <div id="mailList" class="list-group">
                     <!-- Mailler buraya dinamik olarak eklenecek -->
                 </div>
             </div>
@@ -280,7 +287,150 @@
 {% endblock %}
 
 {% block scripts %}
+{{ super() }}
+<style>
+    .step-indent {
+        display: inline-block;
+    }
+    .step-indent[data-level="1"] { width: 20px; }
+    .step-indent[data-level="2"] { width: 40px; }
+    .step-indent[data-level="3"] { width: 60px; }
+</style>
 <script>
+    // Mail kartlarını tıklanabilir yap
+    document.addEventListener('DOMContentLoaded', () => {
+        initializeMailCards();
+        initializeMailStatusCheck();
+        initializeProcessStartButton();
+    });
+
+    function initializeMailCards() {
+        // Mail kartlarını tıklanabilir yap
+        document.querySelectorAll('.mail-variable-card .card-header').forEach(header => {
+            header.style.cursor = 'pointer';
+            header.addEventListener('click', (e) => {
+                // Silme butonuna tıklandığında kartın açılmasını engelle
+                if (e.target.closest('.delete-variable')) {
+                    return;
+                }
+                const details = header.closest('.card').querySelector('.mail-details');
+                details.classList.toggle('d-none');
+            });
+        });
+
+        // Silme butonlarına event listener ekle
+        document.querySelectorAll('.delete-variable').forEach(button => {
+            button.addEventListener('click', () => {
+                const variableId = button.dataset.variableId;
+                deleteVariable(variableId);
+            });
+        });
+    }
+
+    function initializeMailStatusCheck() {
+        // Mail durumu güncelleme butonlarına event listener ekle
+        document.querySelectorAll('.check-mail-status').forEach(button => {
+            button.addEventListener('click', async () => {
+                const stepId = button.dataset.stepId;
+                button.disabled = true;
+                try {
+                    await checkMailReplies(stepId);
+                } finally {
+                    button.disabled = false;
+                }
+            });
+        });
+    }
+
+    function initializeProcessStartButton() {
+        const startProcessForm = document.querySelector('form[action*="start_process"]');
+        if (startProcessForm) {
+            startProcessForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    await fetch(startProcessForm.action, {
+                        method: 'POST'
+                    });
+                    // Süreç başlatıldıktan sonra çalıştır butonlarını aktif et
+                    document.querySelectorAll('.execute-step').forEach(button => {
+                        button.disabled = false;
+                    });
+                    // Start Process butonunu devre dışı bırak
+                    startProcessForm.querySelector('button').disabled = true;
+                } catch (error) {
+                    // Hata durumunda sessizce devam et
+                }
+            });
+        }
+    }
+
+    // Mail yanıt durumunu kontrol et ve adım durumunu güncelle
+    async function checkMailReplies(stepId) {
+        const mailStatuses = document.querySelectorAll(`tr[data-step-id="${stepId}"] .mail-status, #variables-data-${stepId} .mail-status`);
+        if (!mailStatuses.length) return;
+
+        try {
+            const response = await fetch(`/step/${stepId}/check-mail-replies`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+
+            if (result.success && result.mail_statuses) {
+                let allRepliesReceived = true;
+
+                result.mail_statuses.forEach(statusData => {
+                    const statusElements = document.querySelectorAll(`.mail-status[data-variable-id="${statusData.variable_id}"]`);
+                    
+                    statusElements.forEach(status => {
+                        if (statusData.status === 'received' && statusData.replies.length > 0) {
+                            const lastReply = statusData.replies[statusData.replies.length - 1];
+                            status.className = 'mail-status me-2 has-reply';
+                            status.innerHTML = `
+                                <div>
+                                    <i class="bi bi-check-circle-fill"></i>
+                                    <span class="status-text">Yanıt Alındı</span>
+                                    <div class="reply-details mt-2">
+                                        <small class="d-block text-muted">Son yanıt:</small>
+                                        <div class="reply-info">
+                                            <strong>${lastReply.sender}</strong>
+                                            <span class="mx-1">-</span>
+                                            <span>${lastReply.received_at}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            status.className = 'mail-status me-2 no-reply';
+                            status.innerHTML = `
+                                <div>
+                                    <i class="bi bi-hourglass"></i>
+                                    <span class="status-text">Yanıt Bekleniyor</span>
+                                </div>
+                            `;
+                            allRepliesReceived = false;
+                        }
+                    });
+                });
+
+                // Tüm maillere yanıt geldiyse adımı tamamlandı olarak işaretle
+                if (allRepliesReceived) {
+                    const stepRow = document.querySelector(`tr[data-step-id="${stepId}"]`);
+                    const statusButton = stepRow.querySelector('.status-button');
+                    if (statusButton && !statusButton.classList.contains('btn-success')) {
+                        const form = document.createElement('form');
+                        form.method = 'POST';
+                        form.action = `/step/${stepId}/status`;
+                        form.innerHTML = '<input type="hidden" name="status" value="done">';
+                        document.body.appendChild(form);
+                        form.submit();
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Mail durumu kontrol edilirken hata oluştu:', error);
+        }
+    }
+
     // Değişken silme işlemi
     async function deleteVariable(variableId) {
         if (!confirm('Bu değişkeni silmek istediğinizden emin misiniz?')) {
@@ -296,7 +446,7 @@
                 window.location.href = response.url;
             }
         } catch (error) {
-            console.error('Değişken silinirken hata oluştu:', error);
+            alert('Değişken silinirken hata oluştu');
         }
     }
 
@@ -304,6 +454,12 @@
     document.querySelectorAll('.execute-step').forEach(button => {
         button.addEventListener('click', async () => {
             const stepId = button.dataset.stepId;
+            const stepName = button.closest('tr').querySelector('.step-name').textContent;
+            
+            if (!confirm(`"${stepName}" adımını çalıştırmak istediğinizden emin misiniz?`)) {
+                return;
+            }
+            
             button.disabled = true;
 
             try {
@@ -313,49 +469,30 @@
                 const result = await response.json();
 
                 if (result.success) {
+                    // Adım durumunu güncelle
+                    const stepRow = button.closest('tr');
+                    const statusButton = stepRow.querySelector('.status-button');
+                    if (statusButton) {
+                        statusButton.className = 'btn btn-sm dropdown-toggle status-button btn-success';
+                        statusButton.textContent = 'Tamamlandı';
+                    }
+
+                    // Eğer mail tipi ise ve başarılıysa mail modalını göster
                     const stepType = button.closest('tr').querySelector('[data-step-type]')?.dataset.stepType;
                     if (stepType === 'mail') {
                         const mailList = document.getElementById('mailList');
                         mailList.innerHTML = '';
 
                         result.output.forEach(mail => {
-                            const date = new Date(mail.received);
-                            const formattedDate = new Intl.DateTimeFormat('tr-TR', {
-                                day: '2-digit',
-                                month: '2-digit',
-                                year: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                            }).format(date);
-
                             const mailItem = document.createElement('div');
-                            mailItem.className = 'list-group-item list-group-item-action';
+                            mailItem.className = 'list-group-item';
                             mailItem.innerHTML = `
-                                <div class="d-flex w-100 justify-content-between align-items-center mb-2">
-                                    <h5 class="mb-0">
-                                        <i class="bi bi-envelope me-2 text-primary"></i>
-                                        ${mail.subject || 'Konu Yok'}
-                                    </h5>
-                                    <div class="d-flex align-items-center">
-                                        <div class="form-check form-switch me-3">
-                                            <input class="form-check-input" type="checkbox" 
-                                                name="variable_send_mail_${mail.id}" 
-                                                id="send_mail_${mail.id}">
-                                            <label class="form-check-label" for="send_mail_${mail.id}">
-                                                Gönder
-                                            </label>
-                                        </div>
-                                        <small class="text-muted">
-                                            <i class="bi bi-clock me-1"></i>
-                                            ${formattedDate}
-                                        </small>
-                                    </div>
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h5 class="mb-1">${mail.subject}</h5>
+                                    <small>${mail.received}</small>
                                 </div>
-                                <p class="mb-2 text-muted">
-                                    <i class="bi bi-person me-1"></i>
-                                    <strong>Gönderen:</strong> ${mail.sender}
-                                </p>
-                                <p class="mb-0" style="white-space: pre-wrap;">${mail.body}</p>
+                                <p class="mb-1">${mail.body}</p>
+                                <small>Gönderen: ${mail.sender}</small>
                             `;
                             mailList.appendChild(mailItem);
                         });
@@ -363,7 +500,12 @@
                         new bootstrap.Modal(document.getElementById('mailModal')).show();
                     } else {
                         // Normal sonuç modalını göster
-                        document.getElementById('resultSuccess').textContent = `Başarıyla çalıştırıldı: ${JSON.stringify(result.output, null, 2)}`;
+                        let outputMessage = result.output;
+                        if (outputMessage.includes('Çıktı dosyası:')) {
+                            const [message, filePath] = outputMessage.split('Çıktı dosyası:');
+                            outputMessage = `${message}\nÇıktı dosyası:\n${filePath.trim()}`;
+                        }
+                        document.getElementById('resultSuccess').textContent = outputMessage;
                         document.getElementById('resultSuccess').classList.remove('d-none');
                         document.getElementById('resultError').classList.add('d-none');
                         new bootstrap.Modal(document.getElementById('resultModal')).show();
@@ -394,6 +536,26 @@
             if (stepVariables) {
                 variablesContainer.innerHTML = stepVariables.innerHTML;
 
+                // Mail durumlarını senkronize et
+                const mainPageMailStatuses = document.querySelectorAll(`tr[data-step-id="${stepId}"] .mail-status`);
+                mainPageMailStatuses.forEach(mainStatus => {
+                    const subject = mainStatus.dataset.mailSubject;
+                    const modalStatus = variablesContainer.querySelector(`.mail-status[data-mail-subject="${subject}"]`);
+                    if (modalStatus && mainStatus.innerHTML) {
+                        modalStatus.innerHTML = mainStatus.innerHTML;
+                        modalStatus.className = mainStatus.className;
+                    }
+                });
+
+                // Mail kartlarını tıklanabilir yap
+                variablesContainer.querySelectorAll('.mail-variable-card .card-header').forEach(header => {
+                    header.style.cursor = 'pointer';
+                    header.addEventListener('click', () => {
+                        const details = header.closest('.card').querySelector('.mail-details');
+                        details.classList.toggle('d-none');
+                    });
+                });
+
                 // Silme butonlarına event listener ekle
                 variablesContainer.querySelectorAll('.delete-variable').forEach(button => {
                     button.addEventListener('click', () => {
@@ -415,3 +577,32 @@
     });
 </script>
 {% endblock %}
+
+{% macro render_mail_status(var, config) %}
+<div class="mail-status me-2 {% if var.mail_status == 'received' %}has-reply{% else %}no-reply{% endif %}" 
+    data-mail-subject="{{ config.get('subject', '') }}"
+    data-variable-id="{{ var.id }}">
+    {% if var.mail_status == 'received' %}
+    <div>
+        <i class="bi bi-check-circle-fill"></i>
+        <span class="status-text">Yanıt Alındı</span>
+        {% set replies = get_mail_replies(var.id) %}
+        {% if replies %}
+        <div class="reply-details mt-2">
+            <small class="d-block text-muted">Son yanıt:</small>
+            <div class="reply-info">
+                <strong>{{ replies[-1].sender }}</strong>
+                <span class="mx-1">-</span>
+                <span>{{ replies[-1].received_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% else %}
+    <div>
+        <i class="bi bi-hourglass"></i>
+        <span class="status-text">Yanıt Bekleniyor</span>
+    </div>
+    {% endif %}
+</div>
+{% endmacro %}

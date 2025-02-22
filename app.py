@@ -21,6 +21,14 @@ def from_json(value):
     except:
         return {}
 
+@app.template_global()
+def get_mail_replies(variable_id):
+    """Mail değişkenine ait yanıtları getirir"""
+    return MailReply.query.filter_by(
+        variable_id=variable_id,
+        is_reply=True
+    ).order_by(MailReply.received_at.asc()).all()
+
 # Instance klasörünü oluştur
 os.makedirs(app.instance_path, exist_ok=True)
 
@@ -30,14 +38,21 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
+# ProcessExecutor için veritabanı yolunu ayarla
+ProcessExecutor.set_db_path(os.path.join(app.instance_path, 'processes.db'))
+
 # Veritabanı modelleri
 class Process(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
     is_started = db.Column(db.Boolean, default=False)
-    steps = db.relationship('Step', backref='process', lazy=True)
+    started_at = db.Column(db.DateTime)  # Sürecin başlama tarihi
+    steps = db.relationship('Step', 
+                          backref='process', 
+                          lazy=True, 
+                          cascade='all, delete-orphan')  # Cascade silme ekle
 
     def get_completion_percentage(self):
         """Sürecin tamamlanma yüzdesini hesapla"""
@@ -97,23 +112,29 @@ class Process(db.Model):
 
 class Step(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    step_number = db.Column(db.Integer)  # Süreç içindeki sıra numarası
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
     type = db.Column(db.String(50))  # python_script, excel_file, sql_script
     file_path = db.Column(db.String(255))
     order = db.Column(db.Integer)
-    parent_id = db.Column(db.Integer, db.ForeignKey('step.id'), nullable=True)
-    process_id = db.Column(db.Integer, db.ForeignKey('process.id'), nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('step.id', ondelete='CASCADE'), nullable=True)
+    process_id = db.Column(db.Integer, db.ForeignKey('process.id', ondelete='CASCADE'), nullable=False)
     responsible = db.Column(db.String(100))
     status = db.Column(db.String(20), default='not_started')  # not_started, waiting, in_progress, done
     dependencies = db.relationship('StepDependency', 
                                  foreign_keys='StepDependency.step_id',
                                  backref='dependent_step', 
-                                 lazy=True)
+                                 lazy=True,
+                                 cascade='all, delete-orphan')
     sub_steps = db.relationship('Step',
                               backref=db.backref('parent', remote_side=[id]),
-                              lazy=True)
-    variables = db.relationship('StepVariable', backref='step', lazy=True)
+                              lazy=True,
+                              cascade='all, delete-orphan')
+    variables = db.relationship('StepVariable', 
+                              backref='step', 
+                              lazy=True,
+                              cascade='all, delete-orphan')
 
     def __init__(self, **kwargs):
         super(Step, self).__init__(**kwargs)
@@ -126,6 +147,13 @@ class Step(db.Model):
 
         if self.status is None:
             self.status = 'not_started'
+            
+        # Süreç içindeki sıra numarasını belirle
+        if self.step_number is None:
+            last_step = Step.query.filter_by(
+                process_id=self.process_id
+            ).order_by(Step.step_number.desc()).first()
+            self.step_number = (last_step.step_number + 1) if last_step else 1
 
     def get_full_order(self):
         if not self.parent_id:
@@ -136,6 +164,10 @@ class Step(db.Model):
             return f"{parent.order}.{self.order}"
         else:
             return f"{parent.get_full_order()}.{self.order}"
+
+    def get_step_id(self):
+        """Süreç ID'si ve adım numarasından oluşan benzersiz ID döndürür"""
+        return f"{self.process_id}_{self.step_number}"
 
     def update_status(self):
         if not self.sub_steps:  # Alt adımı olmayan adımlar
@@ -174,12 +206,22 @@ class StepVariable(db.Model):
     default_value = db.Column(db.String(255))
     scope = db.Column(db.String(20), nullable=False, default='step_only', server_default='step_only')  # step_only, process_wide
     parent_variable_id = db.Column(db.Integer, db.ForeignKey('step_variable.id', name='fk_parent_variable', ondelete='CASCADE'), nullable=True)
+    mail_status = db.Column(db.String(20), default='waiting')  # waiting, received
     
     # Alt değişkenler için ilişki
     child_variables = db.relationship('StepVariable',
                                     backref=db.backref('parent_variable', remote_side=[id]),
                                     cascade="all, delete-orphan",
                                     passive_deletes=True)
+
+class MailReply(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    variable_id = db.Column(db.Integer, db.ForeignKey('step_variable.id', ondelete='CASCADE'), nullable=False)
+    subject = db.Column(db.String(255))
+    sender = db.Column(db.String(255))
+    received_at = db.Column(db.DateTime, default=datetime.now)
+    original_subject = db.Column(db.String(255))
+    is_reply = db.Column(db.Boolean, default=False)
 
 # Ana sayfa
 @app.route('/')
@@ -237,10 +279,40 @@ def new_process():
 # Süreç silme
 @app.route('/process/<int:process_id>/delete', methods=['POST'])
 def delete_process(process_id):
-    process = Process.query.get_or_404(process_id)
-    Step.query.filter_by(process_id=process_id).delete()
-    db.session.delete(process)
-    db.session.commit()
+    try:
+        process = Process.query.get_or_404(process_id)
+        
+        # Tüm adımları ve alt adımları bul
+        all_steps = []
+        main_steps = Step.query.filter_by(process_id=process_id, parent_id=None).all()
+        
+        for main_step in main_steps:
+            all_steps.append(main_step)
+            substeps = Step.query.filter_by(process_id=process_id).filter(Step.parent_id == main_step.id).all()
+            all_steps.extend(substeps)
+            # Alt adımların alt adımlarını da ekle
+            for substep in substeps:
+                sub_substeps = Step.query.filter_by(process_id=process_id).filter(Step.parent_id == substep.id).all()
+                all_steps.extend(sub_substeps)
+        
+        # Her adımın değişkenlerini ve bağımlılıklarını sil
+        for step in all_steps:
+            # Değişkenleri sil
+            StepVariable.query.filter_by(step_id=step.id).delete()
+            
+            # Bağımlılıkları sil
+            StepDependency.query.filter_by(step_id=step.id).delete()
+            StepDependency.query.filter_by(depends_on_id=step.id).delete()
+        
+        # Süreci sil (cascade ile tüm adımlar da silinecek)
+        db.session.delete(process)
+        db.session.commit()
+        
+        flash('Süreç ve tüm ilişkili veriler başarıyla silindi', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Süreç silinirken hata oluştu: {str(e)}', 'error')
+    
     return redirect(url_for('index'))
 
 # Yeni adım oluşturma
@@ -262,17 +334,29 @@ def new_step(process_id):
         responsible = request.form.get('responsible')
         
         if name and step_type:
-            step = Step(
-                name=name,
-                description=description,
-                type=step_type,
-                file_path=file_path,
-                responsible=responsible,
-                parent_id=parent_id,
-                process_id=process_id
-            )
-            db.session.add(step)
-            db.session.commit()
+            try:
+                step = Step(
+                    name=name,
+                    description=description,
+                    type=step_type,
+                    file_path=file_path,
+                    responsible=responsible,
+                    parent_id=parent_id,
+                    process_id=process_id
+                )
+                db.session.add(step)
+                db.session.commit()
+                
+                # Debug log
+                app.logger.info(f'New step created - ID: {step.id}, Type: {step_type}')
+                variables = StepVariable.query.filter_by(step_id=step.id).all()
+                app.logger.info(f'Variables for step {step.id}: {[{"id": v.id, "name": v.name} for v in variables]}')
+                
+                flash('Adım başarıyla oluşturuldu', 'success')
+                return redirect(url_for('process_detail', process_id=process_id))
+            except Exception as e:
+                db.session.rollback()
+                flash(f'Adım oluşturulurken hata oluştu: {str(e)}', 'error')
             return redirect(url_for('process_detail', process_id=process_id))
     
     # Parent step bilgisini al
@@ -300,6 +384,14 @@ def new_step(process_id):
 @app.route('/step/<int:step_id>/execute', methods=['POST'])
 def execute_step(step_id):
     step = Step.query.get_or_404(step_id)
+    process = Process.query.get(step.process_id)
+    
+    # Sürecin başlatılıp başlatılmadığını kontrol et
+    if not process.is_started:
+        # Süreci başlat
+        process.is_started = True
+        db.session.commit()
+        ProcessExecutor.start_process()
     
     # Mail tipi adımlar için değişkenleri işle
     if step.type == 'mail':
@@ -325,10 +417,23 @@ def execute_step(step_id):
             variables=mail_configs
         )
     else:
+        # Windows için Downloads klasörünü doğru şekilde belirle
+        output_dir = os.path.join(os.environ['USERPROFILE'], 'Downloads')
         result = ProcessExecutor.execute_step(
             step_type=step.type,
-            file_path=step.file_path
+            file_path=step.file_path,
+            output_dir=output_dir if step.type == 'python_script' else None
         )
+        
+        # Script başarıyla çalıştıysa adımı tamamlandı olarak işaretle
+        if result.get('success'):
+            step.status = 'done'
+            db.session.commit()
+            
+            # Eğer çıktı dosyası varsa, yolunu sonuca ekle
+            if result.get('output_file'):
+                output_path = os.path.join(output_dir, result['output_file'])
+                result['output'] = f"Script başarıyla çalıştırıldı. Çıktı dosyası: {output_path}"
     
     return jsonify(result)
 
@@ -345,6 +450,11 @@ def new_variable(step_id):
         var_type = request.form.get('var_type')
         default_value = request.form.get('default_value')
         scope = request.form.get('scope', 'step_only')
+        
+        # Mail tipi adımlar için sadece mail_config değişkenine izin ver
+        if step.type == 'mail' and var_type != 'mail_config':
+            flash('Mail tipi adımlarda sadece mail konfigürasyonu eklenebilir.', 'error')
+            return redirect(url_for('new_variable', step_id=step_id))
         
         if name and var_type:
             # Eğer bu bir alt adımsa ve scope process_wide ise,
@@ -373,7 +483,13 @@ def new_variable(step_id):
     if step.parent_id:
         parent_variables = StepVariable.query.filter_by(step_id=step.parent_id).all()
     
-    return render_template('new_variable.html', step=step, parent_variables=parent_variables)
+    # Mail tipi adımlar için sadece mail_config seçeneğini göster
+    is_mail_step = step.type == 'mail'
+    
+    return render_template('new_variable.html', 
+                         step=step, 
+                         parent_variables=parent_variables,
+                         is_mail_step=is_mail_step)
 
 # Değişken güncelleme
 @app.route('/variable/<int:variable_id>/update', methods=['POST'])
@@ -499,6 +615,10 @@ def reorder_steps(process_id, parent_id=None):
 def start_process(process_id):
     process = Process.query.get_or_404(process_id)
     process.is_started = True
+    process.started_at = datetime.now()  # UTC yerine yerel saat
+    
+    # ProcessExecutor'ı başlat
+    ProcessExecutor.start_process()
     
     steps = Step.query.filter_by(process_id=process_id, parent_id=None).all()
     for step in steps:
@@ -507,6 +627,22 @@ def start_process(process_id):
     
     db.session.commit()
     return redirect(url_for('process_detail', process_id=process_id))
+
+# Uygulama başlangıcında süreç durumunu kontrol et
+def check_process_status():
+    with app.app_context():
+        # Veritabanında başlatılmış süreç var mı kontrol et
+        started_process = Process.query.filter_by(is_started=True).first()
+        if started_process:
+            # Eğer başlatılmış süreç varsa ProcessExecutor'ı da başlat
+            ProcessExecutor.start_process()
+
+# Her istek öncesi süreç durumunu kontrol et
+@app.before_request
+def before_request():
+    if not getattr(app, '_got_first_request', False):
+        check_process_status()
+        app._got_first_request = True
 
 # Adım durumu güncelleme
 @app.route('/step/<int:step_id>/status', methods=['POST'])
@@ -584,6 +720,7 @@ def batch_update_variables():
 @app.route('/step/<int:step_id>/check-mail-replies', methods=['POST'])
 def check_mail_replies(step_id):
     step = Step.query.get_or_404(step_id)
+    process = step.process
     
     if step.type != 'mail':
         return jsonify({
@@ -591,7 +728,246 @@ def check_mail_replies(step_id):
             'error': 'Bu adım mail tipi değil'
         })
     
-    result = ProcessExecutor.execute_mail_check()
+    if not process.is_started:
+        return jsonify({
+            'success': False,
+            'error': 'Süreç henüz başlatılmamış'
+        })
+    
+    # Süreç başlama tarihini ProcessExecutor'a gönder
+    result = ProcessExecutor.execute_mail_check(start_date=process.started_at)
+    
+    if result['success'] and result['output']:
+        received_mails = result['output']
+        mail_variables = StepVariable.query.filter_by(step_id=step_id, var_type='mail_config').all()
+        
+        all_replies_received = True
+        for var in mail_variables:
+            try:
+                config = json.loads(var.default_value) if var.default_value else {}
+                subject = config.get('subject', '')
+                
+                if not subject:
+                    continue
+
+                # Mevcut yanıtları kontrol et
+                existing_replies = MailReply.query.filter_by(
+                    variable_id=var.id,
+                    is_reply=True
+                ).all()
+
+                has_reply = False
+                for mail in received_mails:
+                    mail_subject = mail['subject'].lower()
+                    original_subject = subject.lower()
+                    
+                    is_reply = (
+                        (mail_subject.startswith('re:') and original_subject in mail_subject) or
+                        (original_subject.startswith('re:') and mail_subject.replace('re:', '').strip() in original_subject) or
+                        mail_subject == original_subject
+                    )
+                    
+                    if is_reply:
+                        has_reply = True
+                        # Eğer bu yanıt daha önce kaydedilmemişse kaydet
+                        if not any(reply.subject == mail['subject'] for reply in existing_replies):
+                            reply = MailReply(
+                                variable_id=var.id,
+                                subject=mail['subject'],
+                                sender=mail['sender'],
+                                received_at=datetime.strptime(mail['received'], '%Y-%m-%d %H:%M:%S'),
+                                original_subject=subject,
+                                is_reply=True
+                            )
+                            db.session.add(reply)
+                
+                if has_reply:
+                    var.mail_status = 'received'
+                else:
+                    var.mail_status = 'waiting'
+                    if subject:  # Sadece konusu olan mailler için kontrol et
+                        all_replies_received = False
+                
+            except Exception as e:
+                app.logger.error(f"Mail kontrolü sırasında hata: {str(e)}")
+                continue
+        
+        db.session.commit()
+        
+        if all_replies_received:
+            step.status = 'done'
+            db.session.commit()
+    
+    # Yanıt durumunu JSON olarak döndür
+    response_data = {
+        'success': True,
+        'output': result.get('output', []),
+        'mail_statuses': []
+    }
+    
+    # Her mail değişkeni için durum bilgisini ekle
+    for var in mail_variables:
+        try:
+            config = json.loads(var.default_value) if var.default_value else {}
+            replies = MailReply.query.filter_by(variable_id=var.id, is_reply=True).all()
+            
+            status_data = {
+                'variable_id': var.id,
+                'subject': config.get('subject', ''),
+                'status': var.mail_status,
+                'replies': [{
+                    'subject': reply.subject,
+                    'sender': reply.sender,
+                    'received_at': reply.received_at.strftime('%Y-%m-%d %H:%M:%S')
+                } for reply in replies]
+            }
+            response_data['mail_statuses'].append(status_data)
+        except:
+            continue
+    
+    return jsonify(response_data)
+
+# Süreci durdur
+@app.route('/process/<int:process_id>/stop', methods=['POST'])
+def stop_process(process_id):
+    process = Process.query.get_or_404(process_id)
+    process.is_started = False
+    
+    # ProcessExecutor'ı durdur
+    ProcessExecutor.stop_process()
+    
+    db.session.commit()
+    return redirect(url_for('process_detail', process_id=process_id))
+
+# Mail konfigürasyonunu sil
+@app.route('/step/<int:step_id>/mail-config/<int:var_id>/delete', methods=['POST'])
+def delete_mail_config(step_id, var_id):
+    try:
+        step = Step.query.get_or_404(step_id)
+        variable = StepVariable.query.get_or_404(var_id)
+        
+        if variable.step_id != step_id:
+            error_msg = f"Variable {var_id} does not belong to step {step_id}"
+            flash(error_msg, 'error')
+            return redirect(url_for('process_detail', process_id=step.process_id))
+        
+        db.session.delete(variable)
+        db.session.commit()
+        flash('Mail konfigürasyonu başarıyla silindi', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Mail konfigürasyonu silinirken hata oluştu: {str(e)}', 'error')
+    
+    return redirect(url_for('process_detail', process_id=step.process_id))
+
+# Veritabanını JSON olarak döndür
+@app.route('/api/db', methods=['GET'])
+def get_db_as_json():
+    processes = Process.query.all()
+    result = []
+    
+    for process in processes:
+        process_data = {
+            'id': process.id,
+            'name': process.name,
+            'description': process.description,
+            'created_at': process.created_at.isoformat(),
+            'is_started': process.is_started,
+            'started_at': process.started_at.isoformat() if process.started_at else None,
+            'completion_percentage': process.get_completion_percentage(),
+            'status': process.get_status(),
+            'steps': []
+        }
+        
+        # Ana adımları al
+        main_steps = Step.query.filter_by(process_id=process.id, parent_id=None).order_by(Step.order).all()
+        for step in main_steps:
+            step_data = get_step_data_recursive(step)
+            process_data['steps'].append(step_data)
+        
+        result.append(process_data)
+    
+    return jsonify(result)
+
+def get_step_data_recursive(step):
+    """Adım verilerini alt adımlarıyla birlikte recursive olarak al"""
+    step_data = {
+        'id': step.id,
+        'name': step.name,
+        'description': step.description,
+        'type': step.type,
+        'file_path': step.file_path,
+        'order': step.order,
+        'responsible': step.responsible,
+        'status': step.status,
+        'variables': [],
+        'sub_steps': []
+    }
+    
+    # Değişkenleri ekle
+    for var in step.variables:
+        var_data = {
+            'id': var.id,
+            'name': var.name,
+            'var_type': var.var_type,
+            'default_value': var.default_value,
+            'scope': var.scope,
+            'mail_status': var.mail_status if var.var_type == 'mail_config' else None,
+            'parent_variable_id': var.parent_variable_id,
+            'mail_replies': []
+        }
+
+        # Mail yanıtlarını ekle
+        if var.var_type == 'mail_config':
+            replies = MailReply.query.filter_by(
+                variable_id=var.id,
+                is_reply=True
+            ).order_by(MailReply.received_at.asc()).all()
+            
+            var_data['mail_replies'] = [{
+                'id': reply.id,
+                'subject': reply.subject,
+                'sender': reply.sender,
+                'received_at': reply.received_at.isoformat(),
+                'original_subject': reply.original_subject
+            } for reply in replies]
+
+            # Mail konfigürasyonunu parse et
+            try:
+                config = json.loads(var.default_value) if var.default_value else {}
+                var_data['mail_config'] = {
+                    'to': config.get('to', []),
+                    'cc': config.get('cc', []),
+                    'subject': config.get('subject', ''),
+                    'body': config.get('body', ''),
+                    'active': config.get('active', False)
+                }
+            except:
+                var_data['mail_config'] = None
+
+        step_data['variables'].append(var_data)
+    
+    # Alt adımları recursive olarak ekle
+    for sub_step in step.sub_steps:
+        sub_step_data = get_step_data_recursive(sub_step)
+        step_data['sub_steps'].append(sub_step_data)
+    
+    return step_data
+
+@app.route('/debug/step/<int:step_id>/variables')
+def debug_step_variables(step_id):
+    step = Step.query.get_or_404(step_id)
+    variables = StepVariable.query.filter_by(step_id=step_id).all()
+    result = []
+    for var in variables:
+        result.append({
+            'id': var.id,
+            'name': var.name,
+            'var_type': var.var_type,
+            'default_value': var.default_value,
+            'scope': var.scope,
+            'parent_variable_id': var.parent_variable_id
+        })
     return jsonify(result)
 
 if __name__ == '__main__':
