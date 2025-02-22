@@ -1,0 +1,417 @@
+{% extends "base.html" %}
+
+{% block title %}{{ process.name }} - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1>{{ process.name }}</h1>
+        <p class="text-muted">{{ process.description }}</p>
+    </div>
+    <div class="col text-end">
+        {% if not process.is_started %}
+        <a href="{{ url_for('new_step', process_id=process.id) }}" class="btn btn-primary">
+            <i class="bi bi-plus-lg"></i> Yeni Ana Adım
+        </a>
+        {% endif %}
+        <form action="{{ url_for('start_process', process_id=process.id) }}" method="POST" class="d-inline">
+            <button type="submit" class="btn btn-success" {% if process.is_started %}disabled{% endif %}>
+                <i class="bi bi-play-fill"></i> Süreci Başlat
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 5%">Sıra</th>
+                        <th style="width: 35%">Adım Adı</th>
+                        <th style="width: 25%">Açıklama</th>
+                        <th style="width: 15%">Sorumlu</th>
+                        <th style="width: 10%">Durum</th>
+                        <th style="width: 10%">İşlemler</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for step in steps %}
+                    <tr class="{{ 'sub-step' if step.parent_id }}" {% if step.parent_id
+                        %}data-parent-id="{{ step.parent_id }}" {% endif %} data-step-id="{{ step.id }}"
+                        data-step-type="{{ step.type }}">
+                        <td>
+                            <div class="d-flex align-items-center">
+                                {% if step.parent_id %}
+                                <div style="width: {{ 20 * (step.get_full_order().count('.')) }}px"></div>
+                                {% endif %}
+                                <span>{{ step.get_full_order() }}</span>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="step-content">
+                                <div class="d-flex align-items-center">
+                                    <div class="step-name-container d-flex align-items-center">
+                                        <span class="step-name" data-step-id="{{ step.id }}">{{ step.name }}</span>
+                                        <input type="text" class="form-control form-control-sm step-name-input d-none"
+                                            value="{{ step.name }}" data-step-id="{{ step.id }}">
+                                    </div>
+                                    <div class="action-buttons d-flex gap-2 ms-auto">
+                                        {% if not process.is_started %}
+                                        <a href="{{ url_for('new_step', process_id=process.id, parent_id=step.id) }}"
+                                            class="btn btn-sm btn-outline-primary">
+                                            <i class="bi bi-plus-lg"></i> Alt Adım
+                                        </a>
+                                        {% endif %}
+                                        {% if step.type in ['python_script', 'sql_script'] %}
+                                        <button type="button" class="btn btn-sm btn-outline-secondary show-variables"
+                                            data-step-id="{{ step.id }}">
+                                            <i class="bi bi-chevron-right me-1"></i> Değişkenler ({{
+                                            step.variables|length }})
+                                        </button>
+                                        <a href="{{ url_for('new_variable', step_id=step.id) }}"
+                                            class="btn btn-sm btn-outline-secondary">
+                                            <i class="bi bi-plus-lg"></i> Değişken
+                                        </a>
+                                        {% endif %}
+                                        {% if step.type == 'mail' %}
+                                        <form action="{{ url_for('add_mail_variables', step_id=step.id) }}"
+                                            method="POST" class="d-inline">
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                                <i class="bi bi-envelope"></i> Mail Değişkenleri Ekle
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% if step.variables %}
+                                <div class="d-none" id="variables-data-{{ step.id }}">
+                                    {% for var in step.variables %}
+                                    <div class="variable-item mb-3">
+                                        <div class="d-flex align-items-center justify-content-between w-100">
+                                            <div class="d-flex align-items-center">
+                                                <span class="variable-name">{{ var.name }}</span>
+                                                <span class="badge bg-secondary ms-2">{{ var.var_type }}</span>
+                                            </div>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <div class="variable-value-container">
+                                                    {% if var.var_type == 'boolean' %}
+                                                    <div class="form-check form-switch">
+                                                        <input class="form-check-input" type="checkbox"
+                                                            name="variable_{{ var.id }}" value="true" {% if
+                                                            var.default_value=='true' %}checked{% endif %}>
+                                                    </div>
+                                                    {% elif var.var_type == 'number' %}
+                                                    <input type="number" class="form-control form-control-sm"
+                                                        name="variable_{{ var.id }}"
+                                                        value="{{ var.default_value or '0' }}">
+                                                    {% else %}
+                                                    <input type="text" class="form-control form-control-sm"
+                                                        name="variable_{{ var.id }}"
+                                                        value="{{ var.default_value or '' }}"
+                                                        placeholder="Değer girin...">
+                                                    {% endif %}
+                                                </div>
+                                                <button type="button" class="btn btn-sm btn-danger delete-variable"
+                                                    data-variable-id="{{ var.id }}">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            <div class="step-description-container">
+                                <span class="step-description" data-step-id="{{ step.id }}">{{ step.description or
+                                    'Açıklama ekle...' }}</span>
+                                <textarea class="form-control form-control-sm step-description-input d-none"
+                                    data-step-id="{{ step.id }}" rows="2">{{ step.description }}</textarea>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="step-responsible-container">
+                                <span class="step-responsible" data-step-id="{{ step.id }}">{{ step.responsible or
+                                    'Sorumlu ekle...' }}</span>
+                                <input type="text" class="form-control form-control-sm step-responsible-input d-none"
+                                    value="{{ step.responsible }}" data-step-id="{{ step.id }}">
+                            </div>
+                        </td>
+                        <td>
+                            <div class="dropdown">
+                                <button class="btn btn-sm dropdown-toggle status-button 
+                                    {% if step.status == 'done' %}btn-success
+                                    {% elif step.status == 'in_progress' %}btn-primary
+                                    {% elif step.status == 'waiting' %}btn-warning
+                                    {% else %}btn-secondary{% endif %}" type="button" data-bs-toggle="dropdown">
+                                    {% if step.status == 'not_started' %}
+                                    Başlamadı
+                                    {% elif step.status == 'waiting' %}
+                                    Beklemede
+                                    {% elif step.status == 'in_progress' %}
+                                    Devam Ediyor
+                                    {% else %}
+                                    Tamamlandı
+                                    {% endif %}
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li>
+                                        <form action="{{ url_for('update_step_status', step_id=step.id) }}"
+                                            method="POST">
+                                            <input type="hidden" name="status" value="not_started">
+                                            <button type="submit" class="dropdown-item">Başlamadı</button>
+                                        </form>
+                                    </li>
+                                    <li>
+                                        <form action="{{ url_for('update_step_status', step_id=step.id) }}"
+                                            method="POST">
+                                            <input type="hidden" name="status" value="waiting">
+                                            <button type="submit" class="dropdown-item">Beklemede</button>
+                                        </form>
+                                    </li>
+                                    <li>
+                                        <form action="{{ url_for('update_step_status', step_id=step.id) }}"
+                                            method="POST">
+                                            <input type="hidden" name="status" value="in_progress">
+                                            <button type="submit" class="dropdown-item">Devam Ediyor</button>
+                                        </form>
+                                    </li>
+                                    <li>
+                                        <form action="{{ url_for('update_step_status', step_id=step.id) }}"
+                                            method="POST">
+                                            <input type="hidden" name="status" value="done">
+                                            <button type="submit" class="dropdown-item">Tamamlandı</button>
+                                        </form>
+                                    </li>
+                                </ul>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="btn-group">
+                                <button class="btn btn-sm btn-outline-primary execute-step" data-step-id="{{ step.id }}"
+                                    title="Çalıştır">
+                                    <i class="bi bi-play-fill"></i>
+                                </button>
+                                <form action="{{ url_for('delete_step', step_id=step.id) }}" method="POST"
+                                    onsubmit="return confirm('Bu adımı ve tüm alt adımlarını silmek istediğinizden emin misiniz?')"
+                                    class="d-inline">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Sil">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Sonuç Modalı -->
+<div class="modal fade" id="resultModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Çalıştırma Sonucu</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="resultSuccess" class="alert alert-success d-none"></div>
+                <div id="resultError" class="alert alert-danger d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Değişkenler Modalı -->
+<div class="modal fade" id="variablesModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Değişkenler</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="{{ url_for('batch_update_variables') }}" method="POST" id="variablesForm">
+                <div class="modal-body">
+                    <input type="hidden" name="step_id" id="modalStepId">
+                    <div class="variables-container p-3">
+                        <!-- Değişkenler buraya yüklenecek -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                    <button type="submit" class="btn btn-primary">Kaydet</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Mail Modalı -->
+<div class="modal fade" id="mailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-envelope me-2"></i>Son Gelen Mailler
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div id="mailList" class="list-group list-group-flush">
+                    <!-- Mailler buraya dinamik olarak eklenecek -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Değişken silme işlemi
+    async function deleteVariable(variableId) {
+        if (!confirm('Bu değişkeni silmek istediğinizden emin misiniz?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/variable/${variableId}/delete`, {
+                method: 'POST',
+            });
+
+            if (response.redirected) {
+                window.location.href = response.url;
+            }
+        } catch (error) {
+            console.error('Değişken silinirken hata oluştu:', error);
+        }
+    }
+
+    // Adım çalıştırma işlemleri
+    document.querySelectorAll('.execute-step').forEach(button => {
+        button.addEventListener('click', async () => {
+            const stepId = button.dataset.stepId;
+            button.disabled = true;
+
+            try {
+                const response = await fetch(`/step/${stepId}/execute`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    const stepType = button.closest('tr').querySelector('[data-step-type]')?.dataset.stepType;
+                    if (stepType === 'mail') {
+                        const mailList = document.getElementById('mailList');
+                        mailList.innerHTML = '';
+
+                        result.output.forEach(mail => {
+                            const date = new Date(mail.received);
+                            const formattedDate = new Intl.DateTimeFormat('tr-TR', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            }).format(date);
+
+                            const mailItem = document.createElement('div');
+                            mailItem.className = 'list-group-item list-group-item-action';
+                            mailItem.innerHTML = `
+                                <div class="d-flex w-100 justify-content-between align-items-center mb-2">
+                                    <h5 class="mb-0">
+                                        <i class="bi bi-envelope me-2 text-primary"></i>
+                                        ${mail.subject || 'Konu Yok'}
+                                    </h5>
+                                    <div class="d-flex align-items-center">
+                                        <div class="form-check form-switch me-3">
+                                            <input class="form-check-input" type="checkbox" 
+                                                name="variable_send_mail_${mail.id}" 
+                                                id="send_mail_${mail.id}">
+                                            <label class="form-check-label" for="send_mail_${mail.id}">
+                                                Gönder
+                                            </label>
+                                        </div>
+                                        <small class="text-muted">
+                                            <i class="bi bi-clock me-1"></i>
+                                            ${formattedDate}
+                                        </small>
+                                    </div>
+                                </div>
+                                <p class="mb-2 text-muted">
+                                    <i class="bi bi-person me-1"></i>
+                                    <strong>Gönderen:</strong> ${mail.sender}
+                                </p>
+                                <p class="mb-0" style="white-space: pre-wrap;">${mail.body}</p>
+                            `;
+                            mailList.appendChild(mailItem);
+                        });
+
+                        new bootstrap.Modal(document.getElementById('mailModal')).show();
+                    } else {
+                        // Normal sonuç modalını göster
+                        document.getElementById('resultSuccess').textContent = `Başarıyla çalıştırıldı: ${JSON.stringify(result.output, null, 2)}`;
+                        document.getElementById('resultSuccess').classList.remove('d-none');
+                        document.getElementById('resultError').classList.add('d-none');
+                        new bootstrap.Modal(document.getElementById('resultModal')).show();
+                    }
+                } else {
+                    document.getElementById('resultError').textContent = `Hata: ${result.error}`;
+                    document.getElementById('resultError').classList.remove('d-none');
+                    document.getElementById('resultSuccess').classList.add('d-none');
+                    new bootstrap.Modal(document.getElementById('resultModal')).show();
+                }
+            } catch (error) {
+                console.error('Adım çalıştırılırken hata oluştu:', error);
+            } finally {
+                button.disabled = false;
+            }
+        });
+    });
+
+    // Değişken modalı işlemleri
+    document.querySelectorAll('.show-variables').forEach(button => {
+        button.addEventListener('click', () => {
+            const stepId = button.dataset.stepId;
+            document.getElementById('modalStepId').value = stepId;
+
+            // Değişkenleri yükle
+            const variablesContainer = document.querySelector('.variables-container');
+            const stepVariables = document.getElementById(`variables-data-${stepId}`);
+            if (stepVariables) {
+                variablesContainer.innerHTML = stepVariables.innerHTML;
+
+                // Silme butonlarına event listener ekle
+                variablesContainer.querySelectorAll('.delete-variable').forEach(button => {
+                    button.addEventListener('click', () => {
+                        const variableId = button.dataset.variableId;
+                        deleteVariable(variableId);
+                    });
+                });
+            }
+
+            // Modalı göster
+            new bootstrap.Modal(document.getElementById('variablesModal')).show();
+        });
+    });
+
+    // Modal kapandığında event listener'ları temizle
+    document.getElementById('variablesModal').addEventListener('hidden.bs.modal', function () {
+        const variablesContainer = this.querySelector('.variables-container');
+        variablesContainer.innerHTML = '';
+    });
+</script>
+{% endblock %}
