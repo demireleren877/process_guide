@@ -970,6 +970,105 @@ def debug_step_variables(step_id):
         })
     return jsonify(result)
 
+# Süreç kopyalama
+@app.route('/process/<int:process_id>/copy', methods=['POST'])
+def copy_process(process_id):
+    try:
+        # Orijinal süreci al
+        original_process = Process.query.get_or_404(process_id)
+        
+        # Yeni süreç oluştur
+        new_process = Process(
+            name=f"{original_process.name} (Kopya)",
+            description=original_process.description,
+            is_started=False,
+            started_at=None
+        )
+        db.session.add(new_process)
+        db.session.flush()  # Yeni sürecin ID'sini al
+        
+        # Adım ID'lerinin eşleşmesini tutmak için sözlük
+        step_id_map = {}
+        
+        # Ana adımları kopyala
+        main_steps = Step.query.filter_by(process_id=process_id, parent_id=None).order_by(Step.order).all()
+        for main_step in main_steps:
+            new_main_step = copy_step(main_step, new_process.id, None)
+            step_id_map[main_step.id] = new_main_step.id
+            
+            # Alt adımları recursive olarak kopyala
+            copy_substeps_recursive(main_step.id, new_main_step.id, new_process.id, step_id_map)
+        
+        db.session.commit()
+        flash('Süreç başarıyla kopyalandı', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Süreç kopyalanırken hata oluştu: {str(e)}', 'error')
+    
+    return redirect(url_for('index'))
+
+def copy_step(original_step, new_process_id, new_parent_id):
+    """Adımı ve değişkenlerini kopyalar"""
+    # Yeni adım oluştur
+    new_step = Step(
+        name=original_step.name,
+        description=original_step.description,
+        type=original_step.type,
+        file_path=original_step.file_path,
+        order=original_step.order,
+        parent_id=new_parent_id,
+        process_id=new_process_id,
+        responsible=original_step.responsible,
+        status='not_started'
+    )
+    db.session.add(new_step)
+    db.session.flush()  # Yeni adımın ID'sini al
+    
+    # Değişkenleri kopyala
+    for var in original_step.variables:
+        new_var = StepVariable(
+            step_id=new_step.id,
+            name=var.name,
+            var_type=var.var_type,
+            default_value=var.default_value,
+            scope=var.scope,
+            mail_status='waiting' if var.var_type == 'mail_config' else None
+        )
+        db.session.add(new_var)
+    
+    return new_step
+
+def copy_substeps_recursive(original_parent_id, new_parent_id, new_process_id, step_id_map):
+    """Alt adımları recursive olarak kopyalar"""
+    substeps = Step.query.filter_by(parent_id=original_parent_id).order_by(Step.order).all()
+    
+    for substep in substeps:
+        new_substep = copy_step(substep, new_process_id, new_parent_id)
+        step_id_map[substep.id] = new_substep.id
+        
+        # Alt adımın alt adımlarını kopyala
+        copy_substeps_recursive(substep.id, new_substep.id, new_process_id, step_id_map)
+
+# Süreç güncelleme
+@app.route('/process/<int:process_id>/update', methods=['POST'])
+def update_process(process_id):
+    try:
+        process = Process.query.get_or_404(process_id)
+        field = request.form.get('field')
+        value = request.form.get('value')
+        
+        if field == 'name':
+            process.name = value
+        elif field == 'description':
+            process.description = value
+            
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()  # Tabloları oluştur (eğer yoksa)

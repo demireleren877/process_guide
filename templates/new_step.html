@@ -37,16 +37,19 @@
                             <label for="description" class="form-label">Açıklama</label>
                             <textarea class="form-control" id="description" name="description" rows="4"></textarea>
                         </div>
-                        <div class="input-container">
-                            <label for="type" class="form-label">Tip</label>
+                        <div class="mb-3">
+                            <label for="type" class="form-label">Adım Tipi</label>
                             <select class="form-select" id="type" name="type" required>
+                                {% if not parent_id %}
+                                <option value="main_step">Ana Adım</option>
+                                {% endif %}
+                                <option value="mail">Mail</option>
                                 <option value="python_script">Python Script</option>
                                 <option value="excel_file">Excel Dosyası</option>
                                 <option value="sql_script">SQL Script</option>
-                                <option value="mail">Mail Kontrolü</option>
                             </select>
                         </div>
-                        <div class="input-container">
+                        <div class="mb-3" id="file-path-container">
                             <label for="file_path" class="form-label">Dosya Yolu</label>
                             <input type="text" class="form-control" id="file_path" name="file_path">
                         </div>
@@ -54,10 +57,9 @@
                             <label for="responsible" class="form-label">Sorumlu</label>
                             <input type="text" class="form-control" id="responsible" name="responsible">
                         </div>
-                        <div class="d-flex justify-content-between mt-4">
-                            <a href="{{ url_for('process_detail', process_id=process.id) }}"
-                                class="btn btn-secondary">İptal</a>
-                            <button type="submit" class="btn btn-primary">Oluştur</button>
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">Kaydet</button>
+                            <a href="{{ url_for('process_detail', process_id=process.id) }}" class="btn btn-secondary">İptal</a>
                         </div>
                     </form>
                 </div>
@@ -65,4 +67,24 @@
         </div>
     </div>
 </div>
+
+<script>
+    document.getElementById('type').addEventListener('change', function() {
+        const filePathContainer = document.getElementById('file-path-container');
+        if (this.value === 'main_step' || this.value === 'mail') {
+            filePathContainer.style.display = 'none';
+        } else {
+            filePathContainer.style.display = 'block';
+        }
+    });
+
+    // Sayfa yüklendiğinde de kontrol et
+    document.addEventListener('DOMContentLoaded', function() {
+        const stepType = document.getElementById('type').value;
+        const filePathContainer = document.getElementById('file-path-container');
+        if (stepType === 'main_step' || stepType === 'mail') {
+            filePathContainer.style.display = 'none';
+        }
+    });
+</script>
 {% endblock %}

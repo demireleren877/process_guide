@@ -1,69 +1,204 @@
 {% extends "base.html" %}
 
+{% block title %}Ana Sayfa - {{ super() }}{% endblock %}
+
 {% block content %}
-<div class="row mb-4">
-    <div class="col">
+<style>
+    .editable {
+        cursor: pointer;
+        position: relative;
+    }
+    .editable:hover::after {
+        content: '✎';
+        position: absolute;
+        margin-left: 5px;
+        opacity: 0.5;
+    }
+    .edit-input {
+        width: 100%;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        padding: 5px;
+    }
+    .edit-textarea {
+        width: 100%;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        padding: 5px;
+        resize: vertical;
+        min-height: 60px;
+    }
+</style>
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
         <h1>Süreçler</h1>
-    </div>
-    <div class="col text-end">
         <a href="{{ url_for('new_process') }}" class="btn btn-primary">
             <i class="bi bi-plus-lg"></i> Yeni Süreç
         </a>
     </div>
-</div>
 
-<div class="row">
-    {% for process in processes %}
-    <div class="col-md-6 col-lg-4 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start mb-2">
-                    <h5 class="card-title mb-0">{{ process.name }}</h5>
-                    <span class="badge {% if process.is_started %}bg-success{% else %}bg-secondary{% endif %}">
-                        {% if process.is_started %}
-                        Başlatıldı
+    {% if processes %}
+    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for process in processes %}
+        <div class="col">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h5 class="card-title mb-0">
+                            <span class="editable process-name" data-process-id="{{ process.id }}">{{ process.name }}</span>
+                            <input type="text" class="edit-input d-none" value="{{ process.name }}">
+                        </h5>
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown">
+                                <i class="bi bi-three-dots-vertical"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <form action="{{ url_for('copy_process', process_id=process.id) }}" method="POST" class="d-inline">
+                                        <button type="submit" class="dropdown-item">
+                                            <i class="bi bi-files me-2"></i> Kopyala
+                                        </button>
+                                    </form>
+                                </li>
+                                <li>
+                                    <form action="{{ url_for('delete_process', process_id=process.id) }}" method="POST"
+                                        onsubmit="return confirm('Bu süreci silmek istediğinizden emin misiniz?')" class="d-inline">
+                                        <button type="submit" class="dropdown-item text-danger">
+                                            <i class="bi bi-trash me-2"></i> Sil
+                                        </button>
+                                    </form>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                    <p class="card-text text-muted">
+                        <span class="editable process-description" data-process-id="{{ process.id }}">
+                            {{ process.description or 'Açıklama ekle...' }}
+                        </span>
+                        <textarea class="edit-textarea d-none">{{ process.description or '' }}</textarea>
+                    </p>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="progress" style="width: 70%;">
+                            <div class="progress-bar" role="progressbar" style="width: {{ process.get_completion_percentage() }}%">
+                                {{ process.get_completion_percentage() }}%
+                            </div>
+                        </div>
+                        <a href="{{ url_for('process_detail', process_id=process.id) }}" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-arrow-right"></i>
+                        </a>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <small class="text-muted">
+                        <i class="bi bi-clock"></i> {{ process.created_at.strftime('%d.%m.%Y %H:%M') }}
+                    </small>
+                    <span class="float-end">
+                        {% if process.get_status() == 'done' %}
+                        <span class="badge bg-success">Tamamlandı</span>
+                        {% elif process.get_status() == 'in_progress' %}
+                        <span class="badge bg-primary">Devam Ediyor</span>
+                        {% elif process.get_status() == 'waiting' %}
+                        <span class="badge bg-warning">Beklemede</span>
                         {% else %}
-                        Başlatılmadı
+                        <span class="badge bg-secondary">Başlamadı</span>
                         {% endif %}
                     </span>
                 </div>
-                <p class="card-text">{{ process.description }}</p>
-                <div class="progress mb-3" style="height: 20px;">
-                    <div class="progress-bar {% if process.is_started %}bg-success{% else %}bg-secondary{% endif %}"
-                        role="progressbar" style="width: {{ process.get_completion_percentage() }}%"
-                        aria-valuenow="{{ process.get_completion_percentage() }}" aria-valuemin="0" aria-valuemax="100">
-                        {{ process.get_completion_percentage() }}%
-                    </div>
-                </div>
-                <p class="card-text">
-                    <small class="text-muted">
-                        Oluşturulma: {{ process.created_at.strftime('%d.%m.%Y %H:%M') }}
-                    </small>
-                </p>
-            </div>
-            <div class="card-footer bg-transparent">
-                <div class="d-flex justify-content-between">
-                    <a href="{{ url_for('process_detail', process_id=process.id) }}" class="btn btn-primary">
-                        Detaylar
-                    </a>
-                    <form action="{{ url_for('delete_process', process_id=process.id) }}" method="POST"
-                        class="d-inline">
-                        <button type="submit" class="btn btn-danger"
-                            onclick="return confirm('Bu süreci silmek istediğinizden emin misiniz?')">
-                            Sil
-                        </button>
-                    </form>
-                </div>
             </div>
         </div>
+        {% endfor %}
     </div>
     {% else %}
-    <div class="col">
-        <div class="alert alert-info">
-            Henüz hiç süreç oluşturulmamış.
-            <a href="{{ url_for('new_process') }}" class="alert-link">Yeni bir süreç oluşturun</a>.
-        </div>
+    <div class="alert alert-info">
+        Henüz hiç süreç oluşturulmamış. Yeni bir süreç oluşturmak için sağ üstteki butonu kullanabilirsiniz.
     </div>
-    {% endfor %}
+    {% endif %}
 </div>
+
+<script>
+    // İsim düzenleme
+    document.querySelectorAll('.process-name').forEach(nameSpan => {
+        nameSpan.addEventListener('click', function() {
+            const input = this.nextElementSibling;
+            this.classList.add('d-none');
+            input.classList.remove('d-none');
+            input.focus();
+        });
+    });
+
+    // Açıklama düzenleme
+    document.querySelectorAll('.process-description').forEach(descSpan => {
+        descSpan.addEventListener('click', function() {
+            const textarea = this.nextElementSibling;
+            this.classList.add('d-none');
+            textarea.classList.remove('d-none');
+            textarea.focus();
+        });
+    });
+
+    // İsim kaydetme
+    document.querySelectorAll('.process-name + .edit-input').forEach(input => {
+        input.addEventListener('blur', async function() {
+            const span = this.previousElementSibling;
+            const processId = span.dataset.processId;
+            const newValue = this.value.trim();
+
+            if (newValue && newValue !== span.textContent) {
+                try {
+                    const response = await fetch(`/process/${processId}/update`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: `field=name&value=${encodeURIComponent(newValue)}`
+                    });
+
+                    if (response.ok) {
+                        span.textContent = newValue;
+                    }
+                } catch (error) {
+                    console.error('Güncelleme hatası:', error);
+                }
+            }
+
+            this.classList.add('d-none');
+            span.classList.remove('d-none');
+        });
+
+        input.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                this.blur();
+            }
+        });
+    });
+
+    // Açıklama kaydetme
+    document.querySelectorAll('.process-description + .edit-textarea').forEach(textarea => {
+        textarea.addEventListener('blur', async function() {
+            const span = this.previousElementSibling;
+            const processId = span.dataset.processId;
+            const newValue = this.value.trim();
+
+            try {
+                const response = await fetch(`/process/${processId}/update`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `field=description&value=${encodeURIComponent(newValue)}`
+                });
+
+                if (response.ok) {
+                    span.textContent = newValue || 'Açıklama ekle...';
+                }
+            } catch (error) {
+                console.error('Güncelleme hatası:', error);
+            }
+
+            this.classList.add('d-none');
+            span.classList.remove('d-none');
+        });
+    });
+</script>
 {% endblock %}
