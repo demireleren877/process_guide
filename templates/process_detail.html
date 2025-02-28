@@ -86,7 +86,7 @@
                                         <div class="card-header d-flex justify-content-between align-items-center">
                                             <h6 class="mb-0">{{ var.name }}</h6>
                                             <div class="d-flex align-items-center">
-                                                {{ render_mail_status(var, config) }}
+                                                {{ render_mail_status(var, config, step) }}
                                                 <button type="button" class="btn btn-sm btn-danger delete-variable" data-variable-id="{{ var.id }}">
                                                     <i class="bi bi-trash"></i>
                                                 </button>
@@ -364,9 +364,159 @@
         }
     }
 
+    // Adım çalıştırma işlemleri
+    document.querySelectorAll('.execute-step').forEach(button => {
+        button.addEventListener('click', async () => {
+            const stepId = button.dataset.stepId;
+            const row = button.closest('tr');
+            const stepName = row.querySelector('.step-name').textContent;
+            const stepType = row.dataset.stepType;
+            
+            if (!confirm(`"${stepName}" adımını çalıştırmak istediğinizden emin misiniz?`)) {
+                return;
+            }
+            
+            button.disabled = true;
+
+            try {
+                const response = await fetch(`/step/${stepId}/execute`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    if (stepType === 'mail') {
+                        // Mail gönderimi başarılı olduğunda adımı beklemede olarak işaretle
+                        updateStepStatus(stepId, 'waiting', 'Beklemede');
+
+                        // Mail durumlarını güncelle
+                        const mailStatuses = document.querySelectorAll(`tr[data-step-id="${stepId}"] .mail-status, #variables-data-${stepId} .mail-status, #variablesModal .mail-status`);
+                        mailStatuses.forEach(status => {
+                            const variableId = status.dataset.variableId;
+                            const configStr = status.dataset.config;
+                            console.log('Config string:', configStr);
+                            
+                            let config;
+                            try {
+                                // Config string'i temizle ve parse et
+                                const cleanConfigStr = configStr
+                                    .replace(/'/g, '"')
+                                    .replace(/True/g, 'true')
+                                    .replace(/False/g, 'false')
+                                    .trim();
+                                config = JSON.parse(cleanConfigStr);
+                                console.log('Parsed config:', config);
+                            } catch (e) {
+                                console.error('Config parsing error:', e);
+                                return;
+                            }
+                            
+                            // Mail konfigürasyonunun active durumunu kontrol et
+                            const isActive = config && config.active;
+                            console.log('Active status:', isActive);
+                            
+                            if (isActive) {
+                                status.className = 'mail-status me-2 no-reply';
+                                status.innerHTML = `
+                                    <div>
+                                        <i class="bi bi-hourglass"></i>
+                                        <span class="status-text">Yanıt Bekleniyor</span>
+                                    </div>
+                                `;
+                            } else {
+                                status.className = 'mail-status me-2';
+                                status.innerHTML = `
+                                    <div>
+                                        <i class="bi bi-dash-circle"></i>
+                                        <span class="status-text">Pasif</span>
+                                    </div>
+                                `;
+                            }
+                        });
+
+                        // Sonuç modalını göster
+                        const resultSuccess = document.getElementById('resultSuccess');
+                        const resultError = document.getElementById('resultError');
+                        
+                        if (resultSuccess && resultError) {
+                            resultSuccess.textContent = 'Mail başarıyla gönderildi';
+                            resultSuccess.classList.remove('d-none');
+                            resultError.classList.add('d-none');
+                            
+                            const resultModal = document.getElementById('resultModal');
+                            if (resultModal) {
+                                new bootstrap.Modal(resultModal).show();
+                            }
+                        }
+                        
+                        // Mail durumlarını sunucudan kontrol et
+                        await checkMailReplies(stepId);
+                    } else {
+                        // Mail tipi değilse tamamlandı olarak işaretle
+                        updateStepStatus(stepId, 'done', 'Tamamlandı');
+                        
+                        // Sonuç modalını göster
+                        const resultSuccess = document.getElementById('resultSuccess');
+                        const resultError = document.getElementById('resultError');
+                        
+                        if (resultSuccess && resultError) {
+                            let outputMessage = result.output;
+                            if (outputMessage.includes('Çıktı dosyası:')) {
+                                const [message, filePath] = outputMessage.split('Çıktı dosyası:');
+                                outputMessage = `${message}\nÇıktı dosyası:\n${filePath.trim()}`;
+                            }
+                            resultSuccess.textContent = outputMessage;
+                            resultSuccess.classList.remove('d-none');
+                            resultError.classList.add('d-none');
+                            
+                            const resultModal = document.getElementById('resultModal');
+                            if (resultModal) {
+                                new bootstrap.Modal(resultModal).show();
+                            }
+                        }
+                    }
+                } else {
+                    const resultError = document.getElementById('resultError');
+                    const resultSuccess = document.getElementById('resultSuccess');
+                    
+                    if (resultError && resultSuccess) {
+                        resultError.textContent = `Hata: ${result.error}`;
+                        resultError.classList.remove('d-none');
+                        resultSuccess.classList.add('d-none');
+                        
+                        const resultModal = document.getElementById('resultModal');
+                        if (resultModal) {
+                            new bootstrap.Modal(resultModal).show();
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Adım çalıştırılırken hata oluştu:', error);
+            } finally {
+                button.disabled = false;
+            }
+        });
+    });
+
+    // Adım durumunu güncelleme fonksiyonu
+    function updateStepStatus(stepId, status, text) {
+        const stepRow = document.querySelector(`tr[data-step-id="${stepId}"]`);
+        const statusButton = stepRow.querySelector('.status-button');
+        if (statusButton) {
+            statusButton.className = `btn btn-sm dropdown-toggle status-button ${
+                status === 'done' ? 'btn-success' :
+                status === 'in_progress' ? 'btn-primary' :
+                status === 'waiting' ? 'btn-warning' :
+                'btn-secondary'
+            }`;
+            statusButton.textContent = text;
+        }
+    }
+
     // Mail yanıt durumunu kontrol et ve adım durumunu güncelle
     async function checkMailReplies(stepId) {
-        const mailStatuses = document.querySelectorAll(`tr[data-step-id="${stepId}"] .mail-status, #variables-data-${stepId} .mail-status`);
+        // Ana sayfadaki ve değişkenler modalındaki tüm mail durumlarını seç
+        const mailStatuses = document.querySelectorAll(`tr[data-step-id="${stepId}"] .mail-status, #variables-data-${stepId} .mail-status, #variablesModal .mail-status`);
         if (!mailStatuses.length) return;
 
         try {
@@ -376,10 +526,37 @@
             const result = await response.json();
 
             if (result.success && result.mail_statuses) {
-                let allRepliesReceived = true;
+                let allActiveMailsReplied = true;
+                let hasActiveMail = false;
 
                 result.mail_statuses.forEach(statusData => {
+                    // Hem ana sayfadaki hem de modaldaki durumları güncelle
                     const statusElements = document.querySelectorAll(`.mail-status[data-variable-id="${statusData.variable_id}"]`);
+                    
+                    // Config'i parse et
+                    let config = {};
+                    statusElements.forEach(status => {
+                        try {
+                            const configStr = status.dataset.config;
+                            const cleanConfigStr = configStr
+                                .replace(/'/g, '"')
+                                .replace(/True/g, 'true')
+                                .replace(/False/g, 'false')
+                                .trim();
+                            config = JSON.parse(cleanConfigStr);
+                            console.log('Parsed config in checkMailReplies:', config);
+                        } catch (e) {
+                            console.error('Config parsing error in checkMailReplies:', e);
+                        }
+                    });
+                    console.log('Config active status:', config.active);
+                    
+                    if (config.active) {
+                        hasActiveMail = true;
+                        if (!(statusData.status === 'received' && statusData.replies.length > 0)) {
+                            allActiveMailsReplied = false;
+                        }
+                    }
                     
                     statusElements.forEach(status => {
                         if (statusData.status === 'received' && statusData.replies.length > 0) {
@@ -399,7 +576,7 @@
                                     </div>
                                 </div>
                             `;
-                        } else {
+                        } else if (config.active) {
                             status.className = 'mail-status me-2 no-reply';
                             status.innerHTML = `
                                 <div>
@@ -407,23 +584,21 @@
                                     <span class="status-text">Yanıt Bekleniyor</span>
                                 </div>
                             `;
-                            allRepliesReceived = false;
+                        } else {
+                            status.className = 'mail-status me-2';
+                            status.innerHTML = `
+                                <div>
+                                    <i class="bi bi-dash-circle"></i>
+                                    <span class="status-text">Pasif</span>
+                                </div>
+                            `;
                         }
                     });
                 });
 
-                // Tüm maillere yanıt geldiyse adımı tamamlandı olarak işaretle
-                if (allRepliesReceived) {
-                    const stepRow = document.querySelector(`tr[data-step-id="${stepId}"]`);
-                    const statusButton = stepRow.querySelector('.status-button');
-                    if (statusButton && !statusButton.classList.contains('btn-success')) {
-                        const form = document.createElement('form');
-                        form.method = 'POST';
-                        form.action = `/step/${stepId}/status`;
-                        form.innerHTML = '<input type="hidden" name="status" value="done">';
-                        document.body.appendChild(form);
-                        form.submit();
-                    }
+                // Eğer aktif mail varsa ve tüm aktif maillere yanıt geldiyse adımı tamamlandı olarak işaretle
+                if (hasActiveMail && allActiveMailsReplied) {
+                    updateStepStatus(stepId, 'done', 'Tamamlandı');
                 }
             }
         } catch (error) {
@@ -449,80 +624,6 @@
             alert('Değişken silinirken hata oluştu');
         }
     }
-
-    // Adım çalıştırma işlemleri
-    document.querySelectorAll('.execute-step').forEach(button => {
-        button.addEventListener('click', async () => {
-            const stepId = button.dataset.stepId;
-            const stepName = button.closest('tr').querySelector('.step-name').textContent;
-            
-            if (!confirm(`"${stepName}" adımını çalıştırmak istediğinizden emin misiniz?`)) {
-                return;
-            }
-            
-            button.disabled = true;
-
-            try {
-                const response = await fetch(`/step/${stepId}/execute`, {
-                    method: 'POST'
-                });
-                const result = await response.json();
-
-                if (result.success) {
-                    // Adım durumunu güncelle
-                    const stepRow = button.closest('tr');
-                    const statusButton = stepRow.querySelector('.status-button');
-                    if (statusButton) {
-                        statusButton.className = 'btn btn-sm dropdown-toggle status-button btn-success';
-                        statusButton.textContent = 'Tamamlandı';
-                    }
-
-                    // Eğer mail tipi ise ve başarılıysa mail modalını göster
-                    const stepType = button.closest('tr').querySelector('[data-step-type]')?.dataset.stepType;
-                    if (stepType === 'mail') {
-                        const mailList = document.getElementById('mailList');
-                        mailList.innerHTML = '';
-
-                        result.output.forEach(mail => {
-                            const mailItem = document.createElement('div');
-                            mailItem.className = 'list-group-item';
-                            mailItem.innerHTML = `
-                                <div class="d-flex w-100 justify-content-between">
-                                    <h5 class="mb-1">${mail.subject}</h5>
-                                    <small>${mail.received}</small>
-                                </div>
-                                <p class="mb-1">${mail.body}</p>
-                                <small>Gönderen: ${mail.sender}</small>
-                            `;
-                            mailList.appendChild(mailItem);
-                        });
-
-                        new bootstrap.Modal(document.getElementById('mailModal')).show();
-                    } else {
-                        // Normal sonuç modalını göster
-                        let outputMessage = result.output;
-                        if (outputMessage.includes('Çıktı dosyası:')) {
-                            const [message, filePath] = outputMessage.split('Çıktı dosyası:');
-                            outputMessage = `${message}\nÇıktı dosyası:\n${filePath.trim()}`;
-                        }
-                        document.getElementById('resultSuccess').textContent = outputMessage;
-                        document.getElementById('resultSuccess').classList.remove('d-none');
-                        document.getElementById('resultError').classList.add('d-none');
-                        new bootstrap.Modal(document.getElementById('resultModal')).show();
-                    }
-                } else {
-                    document.getElementById('resultError').textContent = `Hata: ${result.error}`;
-                    document.getElementById('resultError').classList.remove('d-none');
-                    document.getElementById('resultSuccess').classList.add('d-none');
-                    new bootstrap.Modal(document.getElementById('resultModal')).show();
-                }
-            } catch (error) {
-                console.error('Adım çalıştırılırken hata oluştu:', error);
-            } finally {
-                button.disabled = false;
-            }
-        });
-    });
 
     // Değişken modalı işlemleri
     document.querySelectorAll('.show-variables').forEach(button => {
@@ -578,11 +679,12 @@
 </script>
 {% endblock %}
 
-{% macro render_mail_status(var, config) %}
+{% macro render_mail_status(var, config, step) %}
 <div class="mail-status me-2 {% if var.mail_status == 'received' %}has-reply{% else %}no-reply{% endif %}" 
     data-mail-subject="{{ config.get('subject', '') }}"
-    data-variable-id="{{ var.id }}">
-    {% if var.mail_status == 'received' %}
+    data-variable-id="{{ var.id }}"
+    data-config="{{ config }}">
+    {% if var.mail_status == 'received' and get_mail_replies(var.id) %}
     <div>
         <i class="bi bi-check-circle-fill"></i>
         <span class="status-text">Yanıt Alındı</span>
@@ -600,8 +702,27 @@
     </div>
     {% else %}
     <div>
-        <i class="bi bi-hourglass"></i>
-        <span class="status-text">Yanıt Bekleniyor</span>
+        <!-- Debug output -->
+        <small class="d-none debug-info">Config: {{ config }}</small>
+        {% if not config.get('active', False) %}
+            <i class="bi bi-dash-circle"></i>
+            <span class="status-text">Pasif</span>
+        {% elif not step.process.is_started %}
+            <i class="bi bi-clock-history"></i>
+            <span class="status-text">Süreç Başlatılmadı</span>
+        {% elif not config.get('sent_at') %}
+            <i class="bi bi-envelope"></i>
+            <span class="status-text">Gönderilmedi</span>
+        {% else %}
+            <i class="bi bi-hourglass"></i>
+            <span class="status-text">Yanıt Bekleniyor</span>
+            <div class="reply-details mt-2">
+                <small class="d-block text-muted">Gönderilme:</small>
+                <div class="reply-info">
+                    <span>{{ config.get('sent_at')|format_datetime }}</span>
+                </div>
+            </div>
+        {% endif %}
     </div>
     {% endif %}
 </div>

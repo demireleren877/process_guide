@@ -21,6 +21,19 @@ def from_json(value):
     except:
         return {}
 
+@app.template_filter('format_datetime')
+def format_datetime(value):
+    if not value:
+        return ''
+    try:
+        if isinstance(value, str):
+            dt = datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+        else:
+            dt = value
+        return dt.strftime('%d.%m.%Y %H:%M')
+    except:
+        return value
+
 @app.template_global()
 def get_mail_replies(variable_id):
     """Mail değişkenine ait yanıtları getirir"""
@@ -401,6 +414,9 @@ def execute_step(step_id):
                 try:
                     config = json.loads(var.default_value) if var.default_value else None
                     if config and config.get('active', False):  # Sadece aktif olan mailleri gönder
+                        # Mail gönderilme zamanını ekle
+                        config['sent_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        var.default_value = json.dumps(config)
                         mail_configs.append(config)
                 except:
                     continue
@@ -416,6 +432,15 @@ def execute_step(step_id):
             file_path=step.file_path,
             variables=mail_configs
         )
+        
+        # Mail gönderimi başarılı olduysa değişiklikleri kaydet
+        if result['success']:
+            try:
+                db.session.commit()
+            except:
+                db.session.rollback()
+        
+        return jsonify(result)
     else:
         # Windows için Downloads klasörünü doğru şekilde belirle
         output_dir = os.path.join(os.environ['USERPROFILE'], 'Downloads')
@@ -472,10 +497,18 @@ def new_variable(step_id):
                 var_type=var_type,
                 default_value=default_value,
                 scope=scope,
-                parent_variable_id=parent_variable_id
+                parent_variable_id=parent_variable_id,
+                mail_status='waiting' if var_type == 'mail_config' else None
             )
             db.session.add(variable)
             db.session.commit()
+
+            # Yeni mail_config değişkeni oluşturulduğunda, ilgili yanıtları temizle
+            if var_type == 'mail_config':
+                # Önce değişkene ait tüm yanıtları sil
+                MailReply.query.filter_by(variable_id=variable.id).delete()
+                db.session.commit()
+
             return redirect(url_for('process_detail', process_id=step.process_id))
     
     # Ana adımın değişkenlerini template'e gönder
@@ -709,7 +742,7 @@ def batch_update_variables():
                 child_var.default_value = var.default_value
         
         db.session.commit()
-        flash('Değişkenler başarıyla güncellendi', 'success')
+        flash('Değişkenler başarıyla güncellendi', 'success') 
     except Exception as e:
         db.session.rollback()
         flash(f'Değişkenler güncellenirken hata oluştu: {str(e)}', 'error')
@@ -734,12 +767,14 @@ def check_mail_replies(step_id):
             'error': 'Süreç henüz başlatılmamış'
         })
     
+    # Mail değişkenlerini başta al
+    mail_variables = StepVariable.query.filter_by(step_id=step_id, var_type='mail_config').all()
+    
     # Süreç başlama tarihini ProcessExecutor'a gönder
     result = ProcessExecutor.execute_mail_check(start_date=process.started_at)
     
     if result['success'] and result['output']:
         received_mails = result['output']
-        mail_variables = StepVariable.query.filter_by(step_id=step_id, var_type='mail_config').all()
         
         all_replies_received = True
         for var in mail_variables:

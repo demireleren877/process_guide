@@ -288,7 +288,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const stepId = button.dataset.stepId;
             const variablesData = document.getElementById(`variables-data-${stepId}`);
             const variablesContainer = document.getElementById('variables-container');
-
             if (variablesData) {
                 variablesContainer.innerHTML = variablesData.innerHTML;
                 variablesContainer.dataset.stepId = stepId;
