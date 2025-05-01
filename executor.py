@@ -202,12 +202,15 @@ class ProcessExecutor:
             pythoncom.CoUninitialize()
 
     @staticmethod
-    def execute_python_script(file_path, output_dir=None):
+    def execute_python_script(file_path, output_dir=None,variables=None):
         # Süreç kontrolü
         check_result = ProcessExecutor.check_process_started()
         if check_result:
             return check_result
-
+        var_list = []
+        for variable in variables:            
+            var_list.append({"id":variable.name,"default_value":variable.default_value})
+        variables = json.dumps(var_list)
         try:
             # Dosya yolundaki tırnak işaretlerini kaldır ve yolu normalize et
             file_path = file_path.strip('"').strip("'")
@@ -222,12 +225,12 @@ class ProcessExecutor:
                 
                 # Script çalıştırılmadan önce dizindeki dosyaları kaydet
                 ProcessExecutor._files_before = set(os.listdir(output_dir))
-            
             # Python scriptini çalıştır
             result = subprocess.run(['python', file_path], 
                                  capture_output=True, 
                                  text=True,
                                  check=True,
+                                 input=variables,
                                  env=env,
                                  cwd=output_dir if output_dir else None)  # Çalışma dizinini output_dir olarak ayarla
             
@@ -325,7 +328,7 @@ class ProcessExecutor:
             output_dir = kwargs.get('output_dir')
             if output_dir:
                 ProcessExecutor._files_before = set(os.listdir(output_dir))
-            return ProcessExecutor.execute_python_script(file_path, output_dir)
+            return ProcessExecutor.execute_python_script(file_path, output_dir,kwargs.get('variables'))
         elif step_type == 'excel_file':
             return ProcessExecutor.execute_excel_file(file_path)
         elif step_type == 'sql_script':

@@ -63,6 +63,7 @@ class Process(db.Model):
     is_started = db.Column(db.Boolean, default=False)
     started_at = db.Column(db.DateTime)  # Sürecin başlama tarihi
     steps = db.relationship('Step', 
+    
                           backref='process', 
                           lazy=True, 
                           cascade='all, delete-orphan')  # Cascade silme ekle
@@ -447,6 +448,7 @@ def execute_step(step_id):
         result = ProcessExecutor.execute_step(
             step_type=step.type,
             file_path=step.file_path,
+            variables=step.variables,
             output_dir=output_dir if step.type == 'python_script' else None
         )
         

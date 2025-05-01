@@ -122,6 +122,37 @@
                                             </div>
                                         </div>
                                     </div>
+                                    {% else %}
+                                    <div class="card mb-3" data-variable-id="{{ var.id }}">
+                                        <div class="card-header d-flex justify-content-between align-items-center">
+                                            <h6 class="mb-0">{{ var.name }}</h6>
+                                            <div class="d-flex align-items-center">
+                                                <span class="badge bg-secondary me-2">{{ var.var_type }}</span>
+                                                <button type="button" class="btn btn-sm btn-danger delete-variable" data-variable-id="{{ var.id }}">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="mb-3">
+                                                <label class="form-label">Değer</label>
+                                                {% if var.var_type == 'boolean' %}
+                                                <div class="form-check">
+                                                    <input type="checkbox" class="form-check-input variable-value" 
+                                                        name="value_{{ var.id }}"
+                                                        data-variable-id="{{ var.id }}"
+                                                        {% if var.default_value == 'true' %}checked{% endif %}>
+                                                </div>
+                                                {% else %}
+                                                <input type="{{ 'number' if var.var_type == 'number' else 'text' }}" 
+                                                    class="form-control variable-value" 
+                                                    name="value_{{ var.id }}"
+                                                    data-variable-id="{{ var.id }}"
+                                                    value="{{ var.default_value }}">
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
                                     {% endif %}
                                     {% endfor %}
                                 </div>
@@ -537,19 +568,12 @@
                     let config = {};
                     statusElements.forEach(status => {
                         try {
-                            const configStr = status.dataset.config;
-                            const cleanConfigStr = configStr
-                                .replace(/'/g, '"')
-                                .replace(/True/g, 'true')
-                                .replace(/False/g, 'false')
-                                .trim();
-                            config = JSON.parse(cleanConfigStr);
-                            console.log('Parsed config in checkMailReplies:', config);
+                            config = JSON.parse(status.dataset.config);
                         } catch (e) {
-                            console.error('Config parsing error in checkMailReplies:', e);
+                            console.error('Config parsing error:', e);
                         }
                     });
-                    console.log('Config active status:', config.active);
+                    console.log('Config:', config.active);
                     
                     if (config.active) {
                         hasActiveMail = true;
@@ -651,9 +675,57 @@
                 // Mail kartlarını tıklanabilir yap
                 variablesContainer.querySelectorAll('.mail-variable-card .card-header').forEach(header => {
                     header.style.cursor = 'pointer';
-                    header.addEventListener('click', () => {
+                    header.addEventListener('click', (e) => {
+                        // Silme butonuna tıklandığında kartın açılmasını engelle
+                        if (e.target.closest('.delete-variable')) {
+                            return;
+                        }
                         const details = header.closest('.card').querySelector('.mail-details');
                         details.classList.toggle('d-none');
+                    });
+                });
+
+                // Değişken değerlerini güncelle
+                variablesContainer.querySelectorAll('.variable-value').forEach(input => {
+                    input.addEventListener('change', async () => {
+                        const variableId = input.dataset.variableId;
+                        const value = input.type === 'checkbox' ? input.checked : input.value;
+
+                        try {
+                            const response = await fetch(`/variable/${variableId}/update`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/x-www-form-urlencoded',
+                                },
+                                body: `field=default_value&value=${encodeURIComponent(value)}`
+                            });
+
+                            const result = await response.json();
+
+                            if (!result.success) {
+                                console.error('Değişken güncellenirken hata oluştu');
+                                input.classList.add('is-invalid');
+                                setTimeout(() => input.classList.remove('is-invalid'), 2000);
+                            } else {
+                                // Başarılı güncelleme görsel geri bildirimi
+                                input.classList.add('is-valid');
+                                setTimeout(() => input.classList.remove('is-valid'), 2000);
+
+                                // Ana sayfadaki değişken değerini güncelle
+                                const originalInput = stepVariables.querySelector(`[data-variable-id="${variableId}"] .variable-value`);
+                                if (originalInput) {
+                                    if (input.type === 'checkbox') {
+                                        originalInput.checked = value;
+                                    } else {
+                                        originalInput.value = value;
+                                    }
+                                }
+                            }
+                        } catch (error) {
+                            console.error('Değişken güncellenirken hata oluştu:', error);
+                            input.classList.add('is-invalid');
+                            setTimeout(() => input.classList.remove('is-invalid'), 2000);
+                        }
                     });
                 });
 
