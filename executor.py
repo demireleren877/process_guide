@@ -6,34 +6,61 @@ import json
 from datetime import datetime
 import win32com.client
 import pythoncom
+import cx_Oracle
 
 class ProcessExecutor:
     _instance = None
-    _db_path = None  # Veritabanı yolu için static değişken
-
+    _db_path = None  
+    _oracle_config = {
+        'username': None,
+        'password': None,
+        'dsn': None
+    }
+    
     @classmethod
     def get_instance(cls):
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
-
+    
     @classmethod
     def set_db_path(cls, db_path):
         """Veritabanı yolunu ayarla"""
         cls._db_path = db_path
 
     @classmethod
+    def set_oracle_config(cls, username, password, dsn):
+        cls._oracle_config = {
+            'username': username,
+            'password': password,
+            'dsn': dsn
+        }
+
+    @classmethod
+    def get_oracle_connection(cls):
+        if not all(cls._oracle_config.values()):
+            raise ValueError("Oracle bağlantı bilgileri eksik")
+        return cx_Oracle.connect(
+            cls._oracle_config['username'],
+            cls._oracle_config['password'],
+            cls._oracle_config['dsn']
+        )
+
+    @classmethod
     def _check_db_process_status(cls):
         """Veritabanından süreç durumunu kontrol et"""
-        if not cls._db_path:
-            return False
-        
         try:
-            conn = sqlite3.connect(cls._db_path)
+            # Oracle bağlantısı oluştur
+            conn = ProcessExecutor.get_oracle_connection()
             cursor = conn.cursor()
+            
+            # Süreç durumunu kontrol et
             cursor.execute("SELECT COUNT(*) FROM process WHERE is_started = 1")
             count = cursor.fetchone()[0]
+            
+            cursor.close()
             conn.close()
+            
             return count > 0
         except Exception:
             return False
@@ -68,61 +95,41 @@ class ProcessExecutor:
         return None
 
     @staticmethod
-    def send_mail(variables):
-        # Süreç kontrolü
+    def send_mail(variables):        
         check_result = ProcessExecutor.check_process_started()
         if check_result:
             return check_result
-
-        try:
-            # COM nesnelerini başlat
-            pythoncom.CoInitialize()
-            
-            # Mail konfigürasyonunu kontrol et
+        try:            
+            pythoncom.CoInitialize()      
             if not variables:
-                raise Exception('Mail konfigürasyonu bulunamadı')
-            
-            # Zorunlu alanları kontrol et
+                raise Exception('Mail konfigürasyonu bulunamadı')   
             if not variables.get('to'):
                 raise Exception('En az bir alıcı belirtilmeli')
             if not variables.get('subject'):
                 raise Exception('Mail konusu belirtilmeli')
             if not variables.get('body'):
-                raise Exception('Mail içeriği belirtilmeli')
-            
-            # Aktif değilse gönderme
+                raise Exception('Mail içeriği belirtilmeli')       
             if not variables.get('active', False):
                 return {
                     'success': True,
                     'output': 'Mail gönderimi pasif durumda',
                     'error': None
-                }
-            
-            try:
-                # Outlook uygulamasına bağlan
+                }            
+            try:                
                 outlook = win32com.client.Dispatch('Outlook.Application')
-                mail = outlook.CreateItem(0)  # 0 = Mail item
-                
-                # Alıcıları ayarla
+                mail = outlook.CreateItem(0)                  
                 if isinstance(variables['to'], list):
                     mail.To = '; '.join(variables['to'])
                 else:
-                    mail.To = variables['to']
-                
-                # CC alıcıları ayarla (varsa)
+                    mail.To = variables['to']     
                 if variables.get('cc'):
                     if isinstance(variables['cc'], list):
                         mail.CC = '; '.join(variables['cc'])
                     else:
-                        mail.CC = variables['cc']
-                
-                # Konu ve içeriği ayarla
+                        mail.CC = variables['cc']           
                 mail.Subject = variables['subject']
-                mail.Body = variables['body']
-                
-                # Maili gönder
-                mail.Send()
-                
+                mail.Body = variables['body']      
+                mail.Send()                
                 return {
                     'success': True,
                     'output': 'Mail başarıyla gönderildi',
@@ -133,68 +140,50 @@ class ProcessExecutor:
                     'success': False,
                     'output': None,
                     'error': f'Mail gönderilirken hata oluştu: {str(e)}'
-                }
-                
+                }                
         except Exception as e:
             return {
                 'success': False,
                 'output': None,
                 'error': str(e)
             }
-        finally:
-            # COM nesnelerini temizle
+        finally:            
             pythoncom.CoUninitialize()
 
     @staticmethod
-    def execute_mail_check(start_date=None, sent_at=None):
-        # Süreç kontrolü
+    def execute_mail_check(start_date=None, sent_at=None):        
         check_result = ProcessExecutor.check_process_started()
         if check_result:
             return check_result
-
-        try:
-            # COM nesnelerini başlat
-            pythoncom.CoInitialize()
-            
-            # Outlook uygulamasına bağlan
+        try:            
+            pythoncom.CoInitialize()           
             outlook = win32com.client.Dispatch('Outlook.Application')
             namespace = outlook.GetNamespace('MAPI')
-            inbox = namespace.GetDefaultFolder(6)  # 6 = Gelen Kutusu
-            
-            # Son 10 maili al
+            inbox = namespace.GetDefaultFolder(6)  
             messages = inbox.Items
-            messages.Sort('[ReceivedTime]', True)  # En yeni mailler başta olacak
-            
-            # Tarih filtresi uygula
+            messages.Sort('[ReceivedTime]', True)         
             filter_conditions = []
-            if start_date:
-                # Outlook'un anlayacağı formata çevir
+            if start_date:                
                 filter_date = start_date.strftime('%m/%d/%Y %H:%M %p')
-                filter_conditions.append(f"[ReceivedTime] >= '{filter_date}'")
-            
-            if sent_at:
-                # Mail gönderim tarihinden sonraki maillere bak
+                filter_conditions.append(f"[ReceivedTime] >= '{filter_date}'")            
+            if sent_at:                
                 sent_date = sent_at.strftime('%m/%d/%Y %H:%M %p')
-                filter_conditions.append(f"[ReceivedTime] >= '{sent_date}'")
-            
+                filter_conditions.append(f"[ReceivedTime] >= '{sent_date}'")            
             if filter_conditions:
-                messages = messages.Restrict(" AND ".join(filter_conditions))
-            
+                messages = messages.Restrict(" AND ".join(filter_conditions))            
             mails = []
-            count = 0
-            
+            count = 0            
+
             for message in messages:
                 if count >= 10:
-                    break
-                
+                    break                
                 mails.append({
                     'subject': message.Subject,
                     'sender': message.SenderName,
                     'received': message.ReceivedTime.strftime('%Y-%m-%d %H:%M:%S'),
                     'body': message.Body[:200] + '...' if len(message.Body) > 200 else message.Body
                 })
-                count += 1
-            
+                count += 1            
             return {
                 'success': True,
                 'output': mails,
@@ -206,13 +195,11 @@ class ProcessExecutor:
                 'output': None,
                 'error': str(e)
             }
-        finally:
-            # COM nesnelerini temizle
+        finally:            
             pythoncom.CoUninitialize()
 
     @staticmethod
-    def execute_python_script(file_path, output_dir=None,variables=None):
-        # Süreç kontrolü
+    def execute_python_script(file_path, output_dir=None,variables=None):        
         check_result = ProcessExecutor.check_process_started()
         if check_result:
             return check_result
@@ -220,38 +207,27 @@ class ProcessExecutor:
         for variable in variables:            
             var_list.append({"id":variable.name,"default_value":variable.default_value})
         variables = json.dumps(var_list)
-        try:
-            # Dosya yolundaki tırnak işaretlerini kaldır ve yolu normalize et
+        try:            
             file_path = file_path.strip('"').strip("'")
-            file_path = os.path.normpath(file_path)
-            
-            # Çıktı dizinini ayarla
+            file_path = os.path.normpath(file_path)       
             env = os.environ.copy()
-            if output_dir:
-                # Çıktı dizinini oluştur (eğer yoksa)
+            if output_dir:                
                 os.makedirs(output_dir, exist_ok=True)
-                env['OUTPUT_DIR'] = output_dir
-                
-                # Script çalıştırılmadan önce dizindeki dosyaları kaydet
-                ProcessExecutor._files_before = set(os.listdir(output_dir))
-            # Python scriptini çalıştır
+                env['OUTPUT_DIR'] = output_dir           
+                ProcessExecutor._files_before = set(os.listdir(output_dir))            
             result = subprocess.run(['python', file_path], 
                                  capture_output=True, 
                                  text=True,
                                  check=True,
                                  input=variables,
                                  env=env,
-                                 cwd=output_dir if output_dir else None)  # Çalışma dizinini output_dir olarak ayarla
-            
-            # Çıktı dosyasını kontrol et
+                                 cwd=output_dir if output_dir else None)       
             output_file = None
-            if output_dir and hasattr(ProcessExecutor, '_files_before'):
-                # Script çalıştıktan sonra oluşturulan yeni dosyaları kontrol et
+            if output_dir and hasattr(ProcessExecutor, '_files_before'):                
                 files_after = set(os.listdir(output_dir))
                 new_files = files_after - ProcessExecutor._files_before
                 if new_files:
-                    output_file = list(new_files)[0]  # İlk yeni dosyayı al
-            
+                    output_file = list(new_files)[0]              
             return {
                 'success': True,
                 'output': result.stdout,
@@ -271,53 +247,49 @@ class ProcessExecutor:
                 'error': str(e)
             }
 
+   
     @staticmethod
-    def execute_excel_file(file_path):
-        # Süreç kontrolü
+    def execute_sql_script(file_path, is_procedure=False, procedure_params=None):        
         check_result = ProcessExecutor.check_process_started()
         if check_result:
             return check_result
-
-        try:
-            # Excel dosyasını pandas ile okuma
-            df = pd.read_excel(file_path)
-            # Burada Excel dosyası ile ilgili işlemler yapılabilir
-            return {
-                'success': True,
-                'output': f"Excel dosyası başarıyla işlendi. Satır sayısı: {len(df)}",
-                'error': None
-            }
-        except Exception as e:
-            return {
-                'success': False,
-                'output': None,
-                'error': str(e)
-            }
-
-    @staticmethod
-    def execute_sql_script(file_path, db_path):
-        # Süreç kontrolü
-        check_result = ProcessExecutor.check_process_started()
-        if check_result:
-            return check_result
-
-        try:
-            # SQL dosyasını okuma
+        try:            
             with open(file_path, 'r') as file:
                 sql_script = file.read()
-
-            # SQLite veritabanına bağlanma ve scripti çalıştırma
-            conn = sqlite3.connect(db_path)
+            conn = ProcessExecutor.get_oracle_connection()
             cursor = conn.cursor()
-            cursor.executescript(sql_script)
-            conn.commit()
-            conn.close()
-
-            return {
-                'success': True,
-                'output': "SQL script başarıyla çalıştırıldı",
-                'error': None
-            }
+            
+            try:
+                if is_procedure:
+                    if not procedure_params:
+                        procedure_params = []
+                    cursor.callproc(sql_script, procedure_params)
+                    conn.commit()
+                    return {
+                        'success': True,
+                        'output': "Oracle prosedürü başarıyla çalıştırıldı",
+                        'error': None
+                    }
+                else:
+                    if ';' in sql_script:
+                        sql_script = f"BEGIN\n{sql_script}\nEND;"
+                    cursor.execute(sql_script)
+                    conn.commit()
+                    return {
+                        'success': True,
+                        'output': "Oracle SQL script başarıyla çalıştırıldı",
+                        'error': None
+                    }
+            except cx_Oracle.Error as error:
+                return {
+                    'success': False,
+                    'output': None,
+                    'error': f"Oracle hatası: {str(error)}"
+                }
+            finally:
+                cursor.close()
+                conn.close()
+                
         except Exception as e:
             return {
                 'success': False,
@@ -326,41 +298,34 @@ class ProcessExecutor:
             }
 
     @staticmethod
-    def execute_step(step_type, file_path, **kwargs):
-        # Süreç kontrolü
+    def execute_step(step_type, file_path, **kwargs):        
         check_result = ProcessExecutor.check_process_started()
         if check_result:
             return check_result
-
-        if step_type == 'python_script':
-            # Python script çalıştırılmadan önce çıktı dizinindeki dosyaları kaydet
+        if step_type == 'python_script':            
             output_dir = kwargs.get('output_dir')
             if output_dir:
                 ProcessExecutor._files_before = set(os.listdir(output_dir))
             return ProcessExecutor.execute_python_script(file_path, output_dir,kwargs.get('variables'))
-        elif step_type == 'excel_file':
-            return ProcessExecutor.execute_excel_file(file_path)
         elif step_type == 'sql_script':
-            db_path = kwargs.get('db_path', 'processes.db')
-            return ProcessExecutor.execute_sql_script(file_path, db_path)
+            return ProcessExecutor.execute_sql_script(file_path, is_procedure=False)
+        elif step_type == 'sql_procedure':
+            procedure_params = kwargs.get('procedure_params', [])
+            return ProcessExecutor.execute_sql_script(file_path, is_procedure=True, procedure_params=procedure_params)
         elif step_type == 'mail':
-            if kwargs.get('variables'):
-                # Birden fazla mail konfigürasyonu olabilir
+            if kwargs.get('variables'):                
                 mail_configs = kwargs['variables']
                 if not isinstance(mail_configs, list):
-                    mail_configs = [mail_configs]
-                
+                    mail_configs = [mail_configs]                
                 results = []
                 success = True
-                error_messages = []
-                
+                error_messages = []                
                 for config in mail_configs:
                     result = ProcessExecutor.send_mail(config)
                     results.append(result)
                     if not result['success']:
                         success = False
-                        error_messages.append(result['error'])
-                
+                        error_messages.append(result['error'])                
                 if success:
                     return {
                         'success': True,

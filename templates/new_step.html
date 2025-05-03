@@ -45,13 +45,18 @@
                                 {% endif %}
                                 <option value="mail">Mail</option>
                                 <option value="python_script">Python Script</option>
-                                <option value="excel_file">Excel Dosyası</option>
                                 <option value="sql_script">SQL Script</option>
+                                <option value="sql_procedure">SQL Prosedür</option>
                             </select>
                         </div>
                         <div class="mb-3" id="file-path-container">
                             <label for="file_path" class="form-label">Dosya Yolu</label>
                             <input type="text" class="form-control" id="file_path" name="file_path">
+                        </div>
+                        <div class="mb-3" id="procedure-params-container" style="display: none;">
+                            <label for="procedure_params" class="form-label">Prosedür Parametreleri (JSON formatında)</label>
+                            <textarea class="form-control" id="procedure_params" name="procedure_params" rows="3" placeholder='["param1", "param2", ...]'></textarea>
+                            <small class="text-muted">Prosedür parametrelerini JSON array formatında giriniz</small>
                         </div>
                         <div class="input-container">
                             <label for="responsible" class="form-label">Sorumlu</label>
@@ -71,10 +76,17 @@
 <script>
     document.getElementById('type').addEventListener('change', function() {
         const filePathContainer = document.getElementById('file-path-container');
+        const procedureParamsContainer = document.getElementById('procedure-params-container');
+        
         if (this.value === 'main_step' || this.value === 'mail') {
             filePathContainer.style.display = 'none';
+            procedureParamsContainer.style.display = 'none';
+        } else if (this.value === 'sql_procedure') {
+            filePathContainer.style.display = 'block';
+            procedureParamsContainer.style.display = 'block';
         } else {
             filePathContainer.style.display = 'block';
+            procedureParamsContainer.style.display = 'none';
         }
     });
 
@@ -82,8 +94,17 @@
     document.addEventListener('DOMContentLoaded', function() {
         const stepType = document.getElementById('type').value;
         const filePathContainer = document.getElementById('file-path-container');
+        const procedureParamsContainer = document.getElementById('procedure-params-container');
+        
         if (stepType === 'main_step' || stepType === 'mail') {
             filePathContainer.style.display = 'none';
+            procedureParamsContainer.style.display = 'none';
+        } else if (stepType === 'sql_procedure') {
+            filePathContainer.style.display = 'block';
+            procedureParamsContainer.style.display = 'block';
+        } else {
+            filePathContainer.style.display = 'block';
+            procedureParamsContainer.style.display = 'none';
         }
     });
 </script>

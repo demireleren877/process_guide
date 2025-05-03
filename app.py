@@ -6,12 +6,23 @@ from datetime import datetime
 import os
 from executor import ProcessExecutor
 import json
+import cx_Oracle
 
 app = Flask(__name__)
 CORS(app)
 
-
 app.secret_key = 'your-super-secret-key-here'  
+
+# Oracle veritabanı bağlantı ayarları
+app.config['SQLALCHEMY_DATABASE_URI'] = 'oracle+cx_oracle://username:password@dsn'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Oracle bağlantı bilgilerini executor'a ilet
+ProcessExecutor.set_oracle_config(
+    username="your_username",
+    password="your_password",
+    dsn="your_dsn"
+)
 
 @app.template_filter('from_json')
 def from_json(value):
@@ -334,7 +345,8 @@ def new_step(process_id):
                          process=process, 
                          parent_id=parent_id, 
                          parent_step=parent_step,
-                         full_order=full_order)
+                         full_order=full_order,
+                         step_types=['python_script', 'sql_script', 'sql_procedure', 'mail'])
 
 @app.route('/step/<int:step_id>/execute', methods=['POST'])
 def execute_step(step_id):
