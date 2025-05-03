@@ -146,7 +146,7 @@ class ProcessExecutor:
             pythoncom.CoUninitialize()
 
     @staticmethod
-    def execute_mail_check(start_date=None):
+    def execute_mail_check(start_date=None, sent_at=None):
         # Süreç kontrolü
         check_result = ProcessExecutor.check_process_started()
         if check_result:
@@ -166,10 +166,19 @@ class ProcessExecutor:
             messages.Sort('[ReceivedTime]', True)  # En yeni mailler başta olacak
             
             # Tarih filtresi uygula
+            filter_conditions = []
             if start_date:
                 # Outlook'un anlayacağı formata çevir
                 filter_date = start_date.strftime('%m/%d/%Y %H:%M %p')
-                messages = messages.Restrict(f"[ReceivedTime] >= '{filter_date}'")
+                filter_conditions.append(f"[ReceivedTime] >= '{filter_date}'")
+            
+            if sent_at:
+                # Mail gönderim tarihinden sonraki maillere bak
+                sent_date = sent_at.strftime('%m/%d/%Y %H:%M %p')
+                filter_conditions.append(f"[ReceivedTime] >= '{sent_date}'")
+            
+            if filter_conditions:
+                messages = messages.Restrict(" AND ".join(filter_conditions))
             
             mails = []
             count = 0
