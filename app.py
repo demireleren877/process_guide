@@ -146,6 +146,7 @@ class Step(db.Model):
                               backref='step', 
                               lazy=True,
                               cascade='all, delete-orphan')
+    completed_at = db.Column(db.DateTime)
 
     def __init__(self, **kwargs):
         super(Step, self).__init__(**kwargs)
@@ -187,16 +188,32 @@ class Step(db.Model):
         has_waiting = any(step.status == 'waiting' for step in self.sub_steps)
         all_done = all(step.status == 'done' for step in self.sub_steps)
         
+        old_status = self.status
+        
         if has_in_progress:
             self.status = 'in_progress'
+            if self.completed_at is not None:
+                self.completed_at = None
         elif has_waiting:
             self.status = 'waiting'
+            if self.completed_at is not None:
+                self.completed_at = None
         elif all_not_started:
             self.status = 'not_started'
+            if self.completed_at is not None:
+                self.completed_at = None
         elif all_done:
             self.status = 'done'
+            # Eğer tüm alt adımlar tamamlandıysa ve ana adımın tamamlanma tarihi yoksa
+            if self.completed_at is None:
+                # En son tamamlanan alt adımın tarihini al
+                latest_completion = max(step.completed_at for step in self.sub_steps if step.completed_at is not None)
+                self.completed_at = latest_completion
         else:
-            self.status = 'in_progress'         
+            self.status = 'in_progress'
+            if self.completed_at is not None:
+                self.completed_at = None
+                
         return self.status
 
 class StepDependency(db.Model):
@@ -351,71 +368,26 @@ def new_step(process_id):
 @app.route('/step/<int:step_id>/execute', methods=['POST'])
 def execute_step(step_id):
     step = Step.query.get_or_404(step_id)
-    process = Process.query.get(step.process_id)    
-    if not process.is_started:
-        process.is_started = True
+    
+    if step.status == 'done':
+        return jsonify({
+            'success': False,
+            'message': 'Bu adım zaten tamamlandı.'
+        })
+    
+    # Adımı çalıştır
+    result = ProcessExecutor.execute_step(
+        step.type,
+        step.file_path,
+        output_dir=step.output_dir if hasattr(step, 'output_dir') else None,
+        variables=step.variables if hasattr(step, 'variables') else None
+    )
+    
+    if result['success']:
+        step.status = 'done'
+        step.completed_at = datetime.now()  # Tamamlanma zamanını kaydet
         db.session.commit()
-        ProcessExecutor.start_process()    
-    if step.type == 'mail':
-        mail_configs = []
-        for var in step.variables:
-            if var.var_type == 'mail_config':
-                try:
-                    config = json.loads(var.default_value) if var.default_value else None
-                    if config and config.get('active', False): 
-                        config['sent_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        var.default_value = json.dumps(config)
-                        var.mail_status = 'waiting'
-                        mail_configs.append(config)
-                except:
-                    continue
         
-        if not mail_configs:
-            return jsonify({
-                'success': False,
-                'error': 'Aktif mail konfigürasyonu bulunamadı.'
-            })        
-        result = ProcessExecutor.execute_step(
-            step_type=step.type,
-            file_path=step.file_path,
-            variables=mail_configs
-        )
-        
-        
-        if result['success']:
-            try:                
-                result['mail_statuses'] = []
-                for var in step.variables:
-                    if var.var_type == 'mail_config':
-                        try:
-                            config = json.loads(var.default_value) if var.default_value else {}
-                            if config.get('active', False):
-                                result['mail_statuses'].append({
-                                    'variable_id': var.id,
-                                    'status': var.mail_status,
-                                    'config': config
-                                })
-                        except:
-                            continue
-                db.session.commit()
-            except:
-                db.session.rollback()
-        
-        return jsonify(result)
-    else:        
-        output_dir = os.path.join(os.environ['USERPROFILE'], 'Downloads')
-        result = ProcessExecutor.execute_step(
-            step_type=step.type,
-            file_path=step.file_path,
-            variables=step.variables,
-            output_dir=output_dir if step.type == 'python_script' else None
-        )      
-        if result.get('success'):
-            step.status = 'done'
-            db.session.commit()     
-            if result.get('output_file'):
-                output_path = os.path.join(output_dir, result['output_file'])
-                result['output'] = f"Script başarıyla çalıştırıldı. Çıktı dosyası: {output_path}"    
     return jsonify(result)
 
 
@@ -592,6 +564,13 @@ def update_step_status(step_id):
     if new_status in ['not_started', 'waiting', 'in_progress', 'done']:        
         update_substeps_status(step.id, new_status)        
         step.status = new_status
+        
+        # Tamamlanma tarihini güncelle
+        if new_status == 'done':
+            step.completed_at = datetime.now()
+        elif step.completed_at is not None:
+            step.completed_at = None
+            
         db.session.commit()       
         if step.parent_id:
             parent = step.parent
@@ -601,12 +580,43 @@ def update_step_status(step_id):
                 parent = parent.parent    
     return redirect(url_for('process_detail', process_id=step.process_id))
 
-def update_substeps_status(parent_id, status):
-    substeps = Step.query.filter_by(parent_id=parent_id).all()
+def update_substeps_status(step_id, new_status):
+    # Önce ana adımı al
+    parent_step = Step.query.get(step_id)
+    if not parent_step:
+        return
+
+    # Alt adımları güncelle
+    substeps = Step.query.filter_by(parent_id=step_id).all()
+    current_time = datetime.now()
+    
     for substep in substeps:
-        substep.status = status        
-        update_substeps_status(substep.id, status)
+        old_status = substep.status
+        substep.status = new_status
+        
+        # Tamamlanma tarihini güncelle
+        if new_status == 'done':
+            if substep.completed_at is None:
+                substep.completed_at = current_time
+        elif substep.completed_at is not None:
+            substep.completed_at = None
+            
+        # Alt adımların alt adımlarını güncelle
+        update_substeps_status(substep.id, new_status)
+    
+    db.session.commit()
+    
+    # Ana adımın durumunu güncelle
+    if parent_step.sub_steps:
+        parent_step.update_status()
         db.session.commit()
+        
+        # Üst seviye adımları da güncelle
+        current_parent = parent_step.parent
+        while current_parent:
+            current_parent.update_status()
+            db.session.commit()
+            current_parent = current_parent.parent
 
 
 @app.route('/variables/batch-update', methods=['POST'])
@@ -976,6 +986,130 @@ def update_process(process_id):
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)})
     
+
+@app.route('/api/process/<int:process_id>/flowchart')
+def get_process_flowchart(process_id):
+    process = Process.query.get_or_404(process_id)
+    main_steps = Step.query.filter_by(process_id=process_id, parent_id=None).order_by(Step.order).all()
+    
+    nodes = []
+    edges = []
+    processed_ids = set()
+    
+    # Ana süreç düğümü
+    process_node_id = f'process_{process.id}'
+    nodes.append({
+        'id': process_node_id,
+        'label': process.name,
+        'title': process.description or '',
+        'group': 'main',
+        'level': 0
+    })
+    processed_ids.add(process_node_id)
+    
+    # Ana adımlar
+    for main_step in main_steps:
+        main_step_id = f'step_{main_step.id}'
+        if main_step_id not in processed_ids:
+            nodes.append({
+                'id': main_step_id,
+                'label': main_step.name,
+                'title': main_step.description or '',
+                'group': main_step.type,
+                'level': 1
+            })
+            processed_ids.add(main_step_id)
+            
+            # Ana süreç ile ana adım arasındaki bağlantı
+            edges.append({
+                'from': process_node_id,
+                'to': main_step_id
+            })
+        
+        # Alt adımlar
+        substeps = Step.query.filter_by(parent_id=main_step.id).order_by(Step.order).all()
+        for substep in substeps:
+            substep_id = f'step_{substep.id}'
+            if substep_id not in processed_ids:
+                nodes.append({
+                    'id': substep_id,
+                    'label': substep.name,
+                    'title': substep.description or '',
+                    'group': substep.type,
+                    'level': 2
+                })
+                processed_ids.add(substep_id)
+            
+            # Ana adım ile alt adım arasındaki bağlantı
+            edges.append({
+                'from': main_step_id,
+                'to': substep_id
+            })
+            
+            # Alt-alt adımlar
+            subsubsteps = Step.query.filter_by(parent_id=substep.id).order_by(Step.order).all()
+            for subsubstep in subsubsteps:
+                subsubstep_id = f'step_{subsubstep.id}'
+                if subsubstep_id not in processed_ids:
+                    nodes.append({
+                        'id': subsubstep_id,
+                        'label': subsubstep.name,
+                        'title': subsubstep.description or '',
+                        'group': subsubstep.type,
+                        'level': 3
+                    })
+                    processed_ids.add(subsubstep_id)
+                
+                # Alt adım ile alt-alt adım arasındaki bağlantı
+                edges.append({
+                    'from': substep_id,
+                    'to': subsubstep_id
+                })
+    
+    return jsonify({
+        'nodes': nodes,
+        'edges': edges
+    })
+
+@app.route('/api/calendar/completed-steps')
+def get_completed_steps():
+    # Sadece parent_id'si None olan (ana) adımları al
+    steps = Step.query.filter(
+        Step.completed_at.isnot(None),
+        Step.parent_id.is_(None)  # Ana adımları filtrele
+    ).all()
+    
+    events = []
+    
+    for step in steps:
+        # Ana adımın adını ve süreç adını birleştir
+        step_title = f"{step.process.name} - {step.name}"
+        
+        # Tamamlanma zamanını kullan
+        completion_time = step.completed_at
+        
+        events.append({
+            'id': step.id,
+            'title': step_title,
+            'start': completion_time.strftime('%Y-%m-%dT%H:%M:%S'),  # ISO format without timezone
+            'display': 'block',  # Blok görünüm kullan
+            'allDay': False,
+            'textColor': 'white',
+            'extendedProps': {
+                'processId': step.process_id,
+                'processName': step.process.name,
+                'stepType': step.type,
+                'description': step.description or '',
+                'completionTime': completion_time.strftime('%H:%M'),
+                'completionDate': completion_time.strftime('%d.%m.%Y %H:%M')
+            }
+        })
+    
+    return jsonify(events)
+
+@app.route('/process/calendar')
+def process_calendar():
+    return render_template('process_calendar.html')
 
 if __name__ == '__main__':
     with app.app_context():

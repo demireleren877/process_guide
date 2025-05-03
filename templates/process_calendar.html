@@ -1,0 +1,482 @@
+{% extends "base.html" %}
+
+{% block title %}Süreç Takvimi - {{ super() }}{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+    .fc {
+        max-width: 1200px;
+        margin: 0 auto;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background: var(--bs-body-bg);
+        padding: 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+    }
+    
+    .fc .fc-toolbar-title {
+        font-size: 1.5rem;
+        font-weight: 500;
+        color: var(--bs-heading-color);
+    }
+    
+    .fc .fc-button {
+        padding: 0.5rem 1rem;
+        font-weight: 500;
+        border-radius: 8px;
+        transition: all 0.2s;
+        background-color: var(--bs-primary);
+        border: none;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .fc .fc-button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        background-color: var(--bs-primary-hover, var(--bs-primary));
+    }
+    
+    .fc .fc-button-active {
+        background-color: var(--bs-primary-darker, var(--bs-primary)) !important;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15) !important;
+    }
+    
+    .fc .fc-event {
+        border-radius: 6px;
+        margin: 1px 0;
+        cursor: pointer;
+        transition: all 0.2s;
+        border: none;
+        min-height: 24px;
+        display: flex;
+        align-items: center;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    
+    .fc .fc-event-main-frame {
+        padding: 2px 6px;
+        width: 100%;
+    }
+    
+    .fc .fc-event-time {
+        font-size: 0.75rem;
+        opacity: 0.9;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    
+    .fc .fc-event-title {
+        font-size: 0.875rem;
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .fc .fc-event:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        filter: brightness(1.1);
+    }
+    
+    .fc .fc-daygrid-event-harness {
+        margin-bottom: 1px;
+    }
+    
+    .fc .fc-daygrid-day-events {
+        margin-top: 1px;
+        margin-bottom: 1px;
+    }
+    
+    .fc .fc-daygrid-body {
+        position: relative;
+        z-index: 1;
+    }
+    
+    .fc .fc-daygrid-day.fc-day-today {
+        background-color: rgba(var(--bs-primary-rgb), 0.05) !important;
+    }
+    
+    .fc th {
+        padding: 0.75rem 0;
+        font-weight: 600;
+        color: var(--bs-heading-color);
+    }
+    
+    .fc td {
+        border-color: var(--bs-border-color);
+    }
+    
+    .fc .fc-daygrid-day-number {
+        padding: 8px;
+        color: var(--bs-body-color);
+    }
+    
+    .fc .fc-day-other .fc-daygrid-day-number {
+        opacity: 0.5;
+    }
+    
+    /* Tooltip özelleştirmeleri */
+    .event-tooltip .tooltip-inner {
+        background-color: var(--bs-body-bg);
+        color: var(--bs-body-color);
+        border: 1px solid var(--bs-border-color);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        padding: 1rem;
+        max-width: 300px;
+        border-radius: 8px;
+    }
+    
+    /* Dark tema için özel stiller */
+    [data-bs-theme="dark"] .fc {
+        background-color: var(--bs-dark);
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+    }
+    
+    [data-bs-theme="dark"] .fc-theme-standard td,
+    [data-bs-theme="dark"] .fc-theme-standard th {
+        border-color: var(--bs-border-color);
+    }
+    
+    [data-bs-theme="dark"] .fc-day-today {
+        background-color: rgba(255, 255, 255, 0.05) !important;
+    }
+    
+    [data-bs-theme="dark"] .event-tooltip .tooltip-inner {
+        background-color: var(--bs-dark);
+        border-color: var(--bs-border-color);
+    }
+    
+    /* Modal özelleştirmeleri */
+    .modal-content {
+        border-radius: 12px;
+        border: none;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+    }
+    
+    .modal-header {
+        border-bottom: 1px solid var(--bs-border-color);
+        padding: 1.25rem 1.5rem;
+    }
+    
+    .modal-body {
+        padding: 1.5rem;
+    }
+    
+    .modal-footer {
+        border-top: 1px solid var(--bs-border-color);
+        padding: 1.25rem 1.5rem;
+    }
+    
+    /* Badge stilleri */
+    #stepType.badge {
+        font-size: 0.875rem;
+        padding: 0.5rem 0.75rem;
+        font-weight: 500;
+        text-transform: none;
+        letter-spacing: 0.3px;
+    }
+    
+    /* Python Script badge ve event */
+    .badge.bg-success, 
+    .fc-event.python-script {
+        background-color: #22c55e !important;
+        color: white;
+    }
+    
+    /* SQL Script badge ve event */
+    .badge.bg-primary,
+    .fc-event.sql-script {
+        background-color: #3b82f6 !important;
+        color: white;
+    }
+    
+    /* SQL Procedure badge ve event */
+    .badge.bg-purple,
+    .fc-event.sql-procedure {
+        background-color: #8b5cf6 !important;
+        color: white;
+    }
+    
+    /* Mail badge ve event */
+    .badge.bg-warning,
+    .fc-event.mail,
+    .fc-event.mail-check {
+        background-color: #f59e0b !important;
+        color: white;
+    }
+    
+    /* Varsayılan badge ve event */
+    .badge.bg-secondary,
+    .fc-event.default {
+        background-color: #6366f1 !important;
+        color: white;
+    }
+    
+    /* Dark tema için özel stiller */
+    [data-bs-theme="dark"] .fc-event {
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+    
+    [data-bs-theme="dark"] .fc-event:hover {
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1 class="h3 mb-2">Süreç Takvimi</h1>
+            <p class="text-muted">Tamamlanan adımların tarih bazlı görünümü</p>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col">
+            <div id="calendar"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Detay Modalı -->
+<div class="modal fade" id="eventModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Adım Detayı</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <strong>Süreç:</strong>
+                    <span id="processName"></span>
+                </div>
+                <div class="mb-3">
+                    <strong>Ana Adım:</strong>
+                    <span id="stepName"></span>
+                </div>
+                <div class="mb-3">
+                    <strong>Adım Tipi:</strong>
+                    <span id="stepType" class="badge"></span>
+                </div>
+                <div class="mb-3">
+                    <strong>Açıklama:</strong>
+                    <p id="stepDescription" class="text-muted mb-0"></p>
+                </div>
+                <div class="mb-3">
+                    <strong>Tamamlanma Tarihi:</strong>
+                    <span id="completionDate"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+                <button type="button" class="btn btn-primary" id="goToProcess">Sürece Git</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<!-- Load FullCalendar -->
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+<script>
+// Wait for both DOM and FullCalendar to be loaded
+window.addEventListener('load', function() {
+    if (typeof FullCalendar === 'undefined') {
+        console.error('FullCalendar failed to load');
+        return;
+    }
+
+    const calendarEl = document.getElementById('calendar');
+    if (!calendarEl) {
+        console.error('Calendar element not found');
+        return;
+    }
+
+    const eventModal = new bootstrap.Modal(document.getElementById('eventModal'));
+    let currentProcessId = null;
+    
+    // Renk havuzu ve kullanılan renkleri takip etme
+    const colorPool = [
+        '#2C3E50', // Koyu Mavi-Gri
+        '#E74C3C', // Koyu Kırmızı
+        '#2980B9', // Koyu Mavi
+        '#8E44AD', // Koyu Mor
+        '#16A085', // Koyu Turkuaz
+        '#27AE60', // Koyu Yeşil
+        '#D35400', // Koyu Turuncu
+        '#1B4F72', // Lacivert
+        '#7D3C98', // Mor
+        '#A04000', // Kahverengi
+        '#145A32', // Koyu Yeşil
+        '#922B21', // Bordo
+        '#1A5276', // Gece Mavisi
+        '#6C3483', // Koyu Eflatun
+        '#186A3B', // Orman Yeşili
+        '#7E5109', // Amber
+        '#4A235A', // Patlıcan Moru
+        '#154360', // Okyanus Mavisi
+        '#641E16', // Kiremit
+        '#0E6251'  // Zümrüt
+    ];
+    let availableColors = [...colorPool];
+    
+    // Renk seçme fonksiyonu
+    function getNextColor() {
+        // Eğer kullanılabilir renk kalmadıysa havuzu yeniden doldur
+        if (availableColors.length === 0) {
+            availableColors = [...colorPool];
+        }
+        
+        // Rastgele bir renk seç ve kullanılabilir renklerden çıkar
+        const randomIndex = Math.floor(Math.random() * availableColors.length);
+        const selectedColor = availableColors[randomIndex];
+        availableColors.splice(randomIndex, 1);
+        
+        return selectedColor;
+    }
+    
+    // Adım tipini Türkçe olarak gösterme
+    function getStepTypeText(stepType) {
+        const typeTexts = {
+            'python_script': 'Python Betiği',
+            'sql_script': 'SQL Betiği',
+            'sql_procedure': 'SQL Prosedürü',
+            'mail': 'Mail İşlemi',
+            'default': 'Diğer'
+        };
+        return typeTexts[stepType] || typeTexts.default;
+    }
+    
+    const calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        locale: 'tr',
+        height: 'auto',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay'
+        },
+        buttonText: {
+            today: 'Bugün',
+            month: 'Ay',
+            week: 'Hafta',
+            day: 'Gün'
+        },
+        firstDay: 1,
+        events: function(info, successCallback, failureCallback) {
+            // Her yeni event yüklemesinde renk havuzunu sıfırla
+            availableColors = [...colorPool];
+            
+            fetch('/api/calendar/completed-steps')
+                .then(response => response.json())
+                .then(events => {
+                    // Her event için sırayla renk ata
+                    events.forEach(event => {
+                        const color = getNextColor();
+                        event.backgroundColor = color;
+                        event.borderColor = color;
+                    });
+                    successCallback(events);
+                })
+                .catch(error => {
+                    console.error('Events loading failed:', error);
+                    failureCallback(error);
+                });
+        },
+        displayEventTime: true,
+        eventTimeFormat: {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        },
+        eventDisplay: 'block',
+        nextDayThreshold: '24:00:00',
+        dayMaxEvents: true,
+        eventContent: function(arg) {
+            return {
+                html: `
+                    <div class="fc-event-main-frame">
+                        <div class="d-flex align-items-center">
+                            <div class="fc-event-time">${arg.event.extendedProps.completionTime}</div>
+                            <div class="fc-event-title-container ms-2">
+                                <div class="fc-event-title fc-sticky">${arg.event.title}</div>
+                            </div>
+                        </div>
+                    </div>
+                `
+            };
+        },
+        eventClick: function(info) {
+            currentProcessId = info.event.extendedProps.processId;
+            
+            document.getElementById('processName').textContent = info.event.extendedProps.processName;
+            document.getElementById('stepName').textContent = info.event.title.split(' - ')[1];
+            
+            const stepType = info.event.extendedProps.stepType;
+            const stepTypeBadge = document.getElementById('stepType');
+            stepTypeBadge.textContent = getStepTypeText(stepType);
+            
+            document.getElementById('stepDescription').textContent = 
+                info.event.extendedProps.description || 'Açıklama bulunmuyor.';
+            document.getElementById('completionDate').textContent = 
+                info.event.extendedProps.completionDate;
+            
+            eventModal.show();
+        },
+        eventDidMount: function(info) {
+            const tooltipContent = `
+                <div class="p-2">
+                    <div><strong>Süreç:</strong> ${info.event.extendedProps.processName}</div>
+                    <div><strong>Ana Adım:</strong> ${info.event.title.split(' - ')[1]}</div>
+                    <div><strong>Tip:</strong> ${getStepTypeText(info.event.extendedProps.stepType)}</div>
+                    <div><strong>Tarih:</strong> ${info.event.extendedProps.completionDate}</div>
+                </div>
+            `;
+            
+            new bootstrap.Tooltip(info.el, {
+                title: tooltipContent,
+                html: true,
+                placement: 'top',
+                customClass: 'event-tooltip'
+            });
+        },
+        loading: function(isLoading) {
+            if (isLoading) {
+                const loadingDiv = document.createElement('div');
+                loadingDiv.id = 'calendar-loading';
+                loadingDiv.className = 'text-center my-3';
+                loadingDiv.innerHTML = '<div class="spinner-border text-primary" role="status"><span class="visually-hidden">Yükleniyor...</span></div>';
+                calendarEl.parentNode.insertBefore(loadingDiv, calendarEl);
+            } else {
+                const loadingDiv = document.getElementById('calendar-loading');
+                if (loadingDiv) loadingDiv.remove();
+            }
+        },
+        views: {
+            timeGrid: {
+                dayMaxEvents: 4
+            }
+        }
+    });
+    
+    try {
+        calendar.render();
+        console.log('Calendar successfully rendered');
+    } catch (error) {
+        console.error('Error rendering calendar:', error);
+    }
+    
+    document.getElementById('goToProcess').addEventListener('click', function() {
+        if (currentProcessId) {
+            window.location.href = `/process/${currentProcessId}`;
+        }
+    });
+});
+</script>
+{% endblock %} 
