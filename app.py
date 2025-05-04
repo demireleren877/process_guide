@@ -210,7 +210,7 @@ class Step(db.Model):
                 latest_completion = max(step.completed_at for step in self.sub_steps if step.completed_at is not None)
                 self.completed_at = latest_completion
         else:
-            self.status = 'in_progress'
+            self.status = 'in_progress'         
             if self.completed_at is not None:
                 self.completed_at = None
                 
@@ -373,7 +373,7 @@ def execute_step(step_id):
         return jsonify({
             'success': False,
             'message': 'Bu adım zaten tamamlandı.'
-        })
+        })        
     
     # Adımı çalıştır
     result = ProcessExecutor.execute_step(
@@ -387,7 +387,7 @@ def execute_step(step_id):
         step.status = 'done'
         step.completed_at = datetime.now()  # Tamamlanma zamanını kaydet
         db.session.commit()
-        
+    
     return jsonify(result)
 
 
@@ -604,7 +604,7 @@ def update_substeps_status(step_id, new_status):
         # Alt adımların alt adımlarını güncelle
         update_substeps_status(substep.id, new_status)
     
-    db.session.commit()
+        db.session.commit()
     
     # Ana adımın durumunu güncelle
     if parent_step.sub_steps:

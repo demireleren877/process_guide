@@ -331,89 +331,89 @@ function showFlowchart(processId) {
         });
 }
 
-// İsim düzenleme
-document.querySelectorAll('.process-name').forEach(nameSpan => {
-    nameSpan.addEventListener('click', function() {
-        const input = this.nextElementSibling;
-        this.classList.add('d-none');
-        input.classList.remove('d-none');
-        input.focus();
+    // İsim düzenleme
+    document.querySelectorAll('.process-name').forEach(nameSpan => {
+        nameSpan.addEventListener('click', function() {
+            const input = this.nextElementSibling;
+            this.classList.add('d-none');
+            input.classList.remove('d-none');
+            input.focus();
+        });
     });
-});
 
-// Açıklama düzenleme
-document.querySelectorAll('.process-description').forEach(descSpan => {
-    descSpan.addEventListener('click', function() {
-        const textarea = this.nextElementSibling;
-        this.classList.add('d-none');
-        textarea.classList.remove('d-none');
-        textarea.focus();
+    // Açıklama düzenleme
+    document.querySelectorAll('.process-description').forEach(descSpan => {
+        descSpan.addEventListener('click', function() {
+            const textarea = this.nextElementSibling;
+            this.classList.add('d-none');
+            textarea.classList.remove('d-none');
+            textarea.focus();
+        });
     });
-});
 
-// İsim kaydetme
-document.querySelectorAll('.process-name + .edit-input').forEach(input => {
-    input.addEventListener('blur', async function() {
-        const span = this.previousElementSibling;
-        const processId = span.dataset.processId;
-        const newValue = this.value.trim();
+    // İsim kaydetme
+    document.querySelectorAll('.process-name + .edit-input').forEach(input => {
+        input.addEventListener('blur', async function() {
+            const span = this.previousElementSibling;
+            const processId = span.dataset.processId;
+            const newValue = this.value.trim();
 
-        if (newValue && newValue !== span.textContent) {
+            if (newValue && newValue !== span.textContent) {
+                try {
+                    const response = await fetch(`/process/${processId}/update`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: `field=name&value=${encodeURIComponent(newValue)}`
+                    });
+
+                    if (response.ok) {
+                        span.textContent = newValue;
+                    }
+                } catch (error) {
+                    console.error('Güncelleme hatası:', error);
+                }
+            }
+
+            this.classList.add('d-none');
+            span.classList.remove('d-none');
+        });
+
+        input.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                this.blur();
+            }
+        });
+    });
+
+    // Açıklama kaydetme
+    document.querySelectorAll('.process-description + .edit-textarea').forEach(textarea => {
+        textarea.addEventListener('blur', async function() {
+            const span = this.previousElementSibling;
+            const processId = span.dataset.processId;
+            const newValue = this.value.trim();
+
             try {
                 const response = await fetch(`/process/${processId}/update`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
                     },
-                    body: `field=name&value=${encodeURIComponent(newValue)}`
+                    body: `field=description&value=${encodeURIComponent(newValue)}`
                 });
 
                 if (response.ok) {
-                    span.textContent = newValue;
+                    span.textContent = newValue || 'Açıklama ekle...';
                 }
             } catch (error) {
                 console.error('Güncelleme hatası:', error);
             }
-        }
 
-        this.classList.add('d-none');
-        span.classList.remove('d-none');
+            this.classList.add('d-none');
+            span.classList.remove('d-none');
+        });
     });
-
-    input.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            this.blur();
-        }
-    });
-});
-
-// Açıklama kaydetme
-document.querySelectorAll('.process-description + .edit-textarea').forEach(textarea => {
-    textarea.addEventListener('blur', async function() {
-        const span = this.previousElementSibling;
-        const processId = span.dataset.processId;
-        const newValue = this.value.trim();
-
-        try {
-            const response = await fetch(`/process/${processId}/update`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `field=description&value=${encodeURIComponent(newValue)}`
-            });
-
-            if (response.ok) {
-                span.textContent = newValue || 'Açıklama ekle...';
-            }
-        } catch (error) {
-            console.error('Güncelleme hatası:', error);
-        }
-
-        this.classList.add('d-none');
-        span.classList.remove('d-none');
-    });
-});
 
 // Akış şeması butonuna tıklama olayı ekle
 document.querySelectorAll('.dropdown-item').forEach(item => {
