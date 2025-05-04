@@ -161,77 +161,176 @@
     
     /* Modal özelleştirmeleri */
     .modal-content {
-        border-radius: 12px;
+        background-color: #2D2D2D;
         border: none;
-        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+        border-radius: 12px;
+        color: #fff;
     }
     
     .modal-header {
-        border-bottom: 1px solid var(--bs-border-color);
-        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 1.25rem;
     }
     
     .modal-body {
-        padding: 1.5rem;
+        padding: 1.25rem;
     }
     
     .modal-footer {
-        border-top: 1px solid var(--bs-border-color);
-        padding: 1.25rem 1.5rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 1.25rem;
     }
     
-    /* Badge stilleri */
-    #stepType.badge {
-        font-size: 0.875rem;
-        padding: 0.5rem 0.75rem;
+    .step-number {
+        width: 32px;
+        height: 32px;
+        background: #007AFF;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        font-size: 1rem;
+        color: #fff;
+    }
+    
+    .modal-title {
+        color: #fff;
+        font-size: 1.25rem;
         font-weight: 500;
-        text-transform: none;
-        letter-spacing: 0.3px;
+        margin: 0;
     }
     
-    /* Python Script badge ve event */
-    .badge.bg-success, 
-    .fc-event.python-script {
-        background-color: #22c55e !important;
-        color: white;
+    /* Badge Styles */
+    #stepType.badge {
+        font-size: 0.75rem;
+        padding: 0.35rem 0.75rem;
+        font-weight: 500;
+        border-radius: 4px;
+        background-color: #34C759;
     }
     
-    /* SQL Script badge ve event */
-    .badge.bg-primary,
-    .fc-event.sql-script {
-        background-color: #3b82f6 !important;
-        color: white;
+    /* Step Details Styles */
+    .step-details {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
     }
     
-    /* SQL Procedure badge ve event */
-    .badge.bg-purple,
-    .fc-event.sql-procedure {
-        background-color: #8b5cf6 !important;
-        color: white;
+    .detail-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
     }
     
-    /* Mail badge ve event */
-    .badge.bg-warning,
-    .fc-event.mail,
-    .fc-event.mail-check {
-        background-color: #f59e0b !important;
-        color: white;
+    .detail-label {
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 0.875rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
     }
     
-    /* Varsayılan badge ve event */
-    .badge.bg-secondary,
-    .fc-event.default {
-        background-color: #6366f1 !important;
-        color: white;
+    .detail-label i {
+        font-size: 1rem;
+        color: #007AFF;
     }
     
-    /* Dark tema için özel stiller */
-    [data-bs-theme="dark"] .fc-event {
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    .detail-field {
+        background-color: #3D3D3D;
+        padding: 0.75rem;
+        border-radius: 8px;
+        color: #fff;
+        font-size: 0.9375rem;
     }
     
-    [data-bs-theme="dark"] .fc-event:hover {
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    /* Form Controls */
+    .form-control {
+        background-color: #3D3D3D;
+        border: none;
+        color: #fff;
+        padding: 0.75rem;
+        font-size: 0.9375rem;
+    }
+    
+    .form-control:focus {
+        background-color: #3D3D3D;
+        color: #fff;
+        box-shadow: none;
+        border: none;
+    }
+    
+    .form-control::placeholder {
+        color: rgba(255, 255, 255, 0.4);
+    }
+    
+    .form-control:read-only {
+        background-color: #3D3D3D;
+    }
+    
+    /* Button Styles */
+    .btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.9375rem;
+        border-radius: 6px;
+        font-weight: 500;
+    }
+    
+    .btn-primary {
+        background-color: #007AFF;
+        border: none;
+    }
+    
+    .btn-primary:hover {
+        background-color: #0066CC;
+    }
+    
+    .btn-secondary {
+        background-color: #3D3D3D;
+        border: none;
+    }
+    
+    .btn-secondary:hover {
+        background-color: #4D4D4D;
+    }
+    
+    .btn-icon {
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #3D3D3D;
+        border: none;
+        color: #fff;
+    }
+    
+    .btn-icon:hover {
+        background-color: #4D4D4D;
+        color: #fff;
+    }
+    
+    /* Close Button */
+    .btn-close {
+        background-color: #3D3D3D;
+        opacity: 1;
+        padding: 0.5rem;
+        border-radius: 6px;
+    }
+    
+    .btn-close:hover {
+        background-color: #4D4D4D;
+        opacity: 1;
+    }
+    
+    .btn-close:focus {
+        box-shadow: none;
+    }
+    
+    /* Text Colors */
+    .text-muted {
+        color: rgba(255, 255, 255, 0.5) !important;
     }
 </style>
 {% endblock %}
@@ -257,34 +356,60 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Adım Detayı</h5>
+                <div class="d-flex align-items-start gap-3">
+                    <div class="step-number">1</div>
+                    <div>
+                        <h4 class="modal-title mb-1" id="processName"></h4>
+                    </div>
+                </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div class="mb-3">
-                    <strong>Süreç:</strong>
-                    <span id="processName"></span>
-                </div>
-                <div class="mb-3">
-                    <strong>Ana Adım:</strong>
-                    <span id="stepName"></span>
-                </div>
-                <div class="mb-3">
-                    <strong>Adım Tipi:</strong>
-                    <span id="stepType" class="badge"></span>
-                </div>
-                <div class="mb-3">
-                    <strong>Açıklama:</strong>
-                    <p id="stepDescription" class="text-muted mb-0"></p>
-                </div>
-                <div class="mb-3">
-                    <strong>Tamamlanma Tarihi:</strong>
-                    <span id="completionDate"></span>
+                <div class="step-details">
+                    <!-- Ana Adım -->
+                    <div class="detail-item">
+                        <div class="detail-label">
+                            <i class="bi bi-check-circle"></i>
+                            Ana Adım
+                        </div>
+                        <div class="detail-field" id="stepName"></div>
+                    </div>
+
+                    <!-- Açıklama -->
+                    <div class="detail-item">
+                        <div class="detail-label">
+                            <i class="bi bi-card-text"></i>
+                            Açıklama
+                        </div>
+                        <div class="detail-field" id="stepDescription">
+                            <em class="text-muted">Açıklama bulunmuyor.</em>
+                        </div>
+                    </div>
+
+                    <!-- Sorumlu -->
+                    <div class="detail-item">
+                        <div class="detail-label">
+                            <i class="bi bi-person"></i>
+                            Sorumlu
+                        </div>
+                        <div class="detail-field" id="responsible"></div>
+                    </div>
+
+                    <!-- Tamamlanma Tarihi -->
+                    <div class="detail-item">
+                        <div class="detail-label">
+                            <i class="bi bi-calendar-check"></i>
+                            Tamamlanma Tarihi
+                        </div>
+                        <div class="detail-field" id="completionDate"></div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
-                <button type="button" class="btn btn-primary" id="goToProcess">Sürece Git</button>
+                <button type="button" class="btn btn-primary w-100" id="goToProcess">
+                    <i class="bi bi-arrow-right-circle me-2"></i>
+                    Sürece Git
+                </button>
             </div>
         </div>
     </div>
@@ -423,13 +548,10 @@ window.addEventListener('load', function() {
             
             document.getElementById('processName').textContent = info.event.extendedProps.processName;
             document.getElementById('stepName').textContent = info.event.title.split(' - ')[1];
-            
-            const stepType = info.event.extendedProps.stepType;
-            const stepTypeBadge = document.getElementById('stepType');
-            stepTypeBadge.textContent = getStepTypeText(stepType);
-            
             document.getElementById('stepDescription').textContent = 
                 info.event.extendedProps.description || 'Açıklama bulunmuyor.';
+            document.getElementById('responsible').textContent = 
+                info.event.extendedProps.responsible || 'Atanmamış';
             document.getElementById('completionDate').textContent = 
                 info.event.extendedProps.completionDate;
             
