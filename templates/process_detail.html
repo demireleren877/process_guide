@@ -28,19 +28,22 @@
             <table class="table table-hover mb-0">
                 <thead>
                     <tr>
-                        <th style="width: 5%">Sıra</th>
-                        <th style="width: 35%">Adım Adı</th>
-                        <th style="width: 25%">Açıklama</th>
-                        <th style="width: 15%">Sorumlu</th>
-                        <th style="width: 10%">Durum</th>
+                        <th style="width: 10%">Sıra</th>
+                        <th style="width: 45%">Adım Adı</th>
+                        <th style="width: 20%">Sorumlu</th>
+                        <th style="width: 15%">Durum</th>
                         <th style="width: 10%">İşlemler</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for step in steps %}
-                    <tr class="{{ 'sub-step' if step.parent_id }}" {% if step.parent_id
-                        %}data-parent-id="{{ step.parent_id }}" {% endif %} data-step-id="{{ step.id }}"
-                        data-step-type="{{ step.type }}">
+                    <tr class="{{ 'sub-step' if step.parent_id }}" {% if step.parent_id %}data-parent-id="{{ step.parent_id }}"{% endif %} 
+                        data-step-id="{{ step.id }}" 
+                        data-step-type="{{ step.type }}"
+                        data-file-path="{{ step.file_path or '' }}"
+                        data-completed-at="{{ step.completed_at|format_datetime if step.completed_at else '' }}"
+                        data-description="{{ step.description or '' }}"
+                        style="cursor: pointer;">
                         <td>
                             <div class="d-flex align-items-center">
                                 {% if step.parent_id %}
@@ -64,7 +67,7 @@
                                             <i class="bi bi-plus-lg"></i> Alt Adım
                                         </a>
                                         {% endif %}
-                                        {% if step.type in ['python_script', 'sql_script', 'mail'] %}
+                                        {% if step.type in ['python_script', 'sql_script', 'mail', 'sql_procedure'] and step.type != 'main_step' %}
                                         <button type="button" class="btn btn-sm btn-outline-secondary show-variables"
                                             data-step-id="{{ step.id }}">
                                             <i class="bi bi-chevron-right me-1"></i> Değişkenler (<span class="variable-count">{{
@@ -160,14 +163,6 @@
                             </div>
                         </td>
                         <td>
-                            <div class="step-description-container">
-                                <span class="step-description" data-step-id="{{ step.id }}">{{ step.description or
-                                    'Açıklama ekle...' }}</span>
-                                <textarea class="form-control form-control-sm step-description-input d-none"
-                                    data-step-id="{{ step.id }}" rows="2">{{ step.description }}</textarea>
-                            </div>
-                        </td>
-                        <td>
                             <div class="step-responsible-container">
                                 <span class="step-responsible" data-step-id="{{ step.id }}">{{ step.responsible or
                                     'Sorumlu ekle...' }}</span>
@@ -225,30 +220,106 @@
                             </div>
                         </td>
                         <td>
-                            <div class="btn-group">
-                                <button class="btn btn-sm btn-outline-primary execute-step" data-step-id="{{ step.id }}"
-                                    {% if not process.is_started %}disabled{% endif %} title="Çalıştır">
-                                    <i class="bi bi-play-fill"></i>
-                                </button>
-                                {% if step.type == 'mail' %}
-                                <button class="btn btn-sm btn-outline-info check-mail-status" data-step-id="{{ step.id }}"
-                                    title="Mail Durumunu Güncelle">
-                                    <i class="bi bi-arrow-clockwise"></i>
-                                </button>
-                                {% endif %}
+                            <div class="d-flex gap-2">
+                                {% if not process.is_started %}
                                 <form action="{{ url_for('delete_step', step_id=step.id) }}" method="POST"
-                                    onsubmit="return confirm('Bu adımı ve tüm alt adımlarını silmek istediğinizden emin misiniz?')"
-                                    class="d-inline">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Sil">
+                                    class="d-inline delete-step-form">
+                                    <button type="submit" class="btn btn-sm btn-danger">
                                         <i class="bi bi-trash"></i>
                                     </button>
                                 </form>
+                                {% endif %}
+                                {% if process.is_started and step.type != 'main_step' %}
+                                <button type="button" class="btn btn-sm btn-primary execute-step"
+                                    data-step-id="{{ step.id }}">
+                                    <i class="bi bi-play-fill"></i>
+                                </button>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+    </div>
+</div>
+
+<!-- Adım Detayları Modal -->
+<div class="modal fade" id="stepDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Adım Detayları</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Adım Adı</label>
+                            <div class="editable-field">
+                                <span id="modalStepName" class="editable-text"></span>
+                                <input type="text" class="form-control d-none" id="modalStepNameInput">
+                                <button class="btn btn-sm btn-outline-primary edit-btn">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Açıklama</label>
+                            <div class="editable-field">
+                                <span id="modalStepDescription" class="editable-text"></span>
+                                <textarea class="form-control d-none" id="modalStepDescriptionInput" rows="3"></textarea>
+                                <button class="btn btn-sm btn-outline-primary edit-btn">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Adım Tipi</label>
+                            <p id="modalStepType"></p>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Sorumlu</label>
+                            <div class="editable-field">
+                                <span id="modalStepResponsible" class="editable-text"></span>
+                                <input type="text" class="form-control d-none" id="modalStepResponsibleInput">
+                                <button class="btn btn-sm btn-outline-primary edit-btn">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Durum</label>
+                            <p id="modalStepStatus"></p>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Tamamlanma Tarihi</label>
+                            <p id="modalStepCompletedAt"></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Dosya Yolu</label>
+                            <div class="editable-field">
+                                <span id="modalStepFilePath" class="editable-text"></span>
+                                <input type="text" class="form-control d-none" id="modalStepFilePathInput">
+                                <button class="btn btn-sm btn-outline-primary edit-btn" id="filePathEditBtn">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+            </div>
         </div>
     </div>
 </div>
@@ -327,6 +398,25 @@
     .step-indent[data-level="1"] { width: 20px; }
     .step-indent[data-level="2"] { width: 40px; }
     .step-indent[data-level="3"] { width: 60px; }
+    .editable-field {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .editable-text {
+        flex-grow: 1;
+        padding: 0.375rem 0;
+        min-height: 24px;
+    }
+
+    .edit-btn {
+        padding: 0.25rem 0.5rem;
+    }
+
+    .editable-field .form-control {
+        flex-grow: 1;
+    }
 </style>
 <script>
     // Mail kartlarını tıklanabilir yap
@@ -617,6 +707,152 @@
     document.getElementById('variablesModal').addEventListener('hidden.bs.modal', function () {
         const variablesContainer = this.querySelector('.variables-container');
         variablesContainer.innerHTML = '';
+    });
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const stepDetailsModal = new bootstrap.Modal(document.getElementById('stepDetailsModal'));
+        let currentStepId = null;
+        
+        // Adım satırına tıklandığında
+        document.querySelectorAll('tr[data-step-id]').forEach(row => {
+            row.addEventListener('click', function(e) {
+                // Eğer tıklanan element bir buton veya form ise modalı açma
+                if (e.target.closest('button') || e.target.closest('form') || e.target.closest('a')) {
+                    return;
+                }
+                
+                currentStepId = this.dataset.stepId;
+                const stepType = this.dataset.stepType;
+                const description = this.dataset.description;
+                const filePath = this.dataset.filePath;
+                const completedAt = this.dataset.completedAt;
+                
+                // Modal içeriğini doldur
+                document.getElementById('modalStepName').textContent = this.querySelector('.step-name').textContent;
+                document.getElementById('modalStepNameInput').value = this.querySelector('.step-name').textContent;
+                
+                document.getElementById('modalStepDescription').textContent = description || '-';
+                document.getElementById('modalStepDescriptionInput').value = description || '';
+                
+                document.getElementById('modalStepType').textContent = getStepTypeName(stepType);
+                
+                const responsible = this.querySelector('.step-responsible').textContent.trim();
+                document.getElementById('modalStepResponsible').textContent = responsible;
+                document.getElementById('modalStepResponsibleInput').value = responsible;
+                
+                document.getElementById('modalStepStatus').textContent = this.querySelector('.status-button').textContent.trim();
+                document.getElementById('modalStepCompletedAt').textContent = completedAt || '-';
+                
+                document.getElementById('modalStepFilePath').textContent = stepType === 'main_step' ? '-' : (filePath || '-');
+                document.getElementById('modalStepFilePathInput').value = filePath || '';
+                
+                // Dosya yolu düzenleme butonunu ana adım için gizle
+                const filePathEditBtn = document.getElementById('filePathEditBtn');
+                if (stepType === 'main_step') {
+                    filePathEditBtn.style.display = 'none';
+                } else {
+                    filePathEditBtn.style.display = 'block';
+                }
+                
+                stepDetailsModal.show();
+            });
+        });
+        
+        // Düzenleme butonlarına tıklandığında
+        document.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const field = this.closest('.editable-field');
+                const textElement = field.querySelector('.editable-text');
+                const inputElement = field.querySelector('.form-control');
+                
+                textElement.classList.add('d-none');
+                inputElement.classList.remove('d-none');
+                this.classList.add('d-none');
+                
+                inputElement.focus();
+                
+                // Enter tuşuna basıldığında kaydet
+                inputElement.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        saveField(this);
+                    }
+                });
+                
+                // Input'tan çıkıldığında kaydet
+                inputElement.addEventListener('blur', function() {
+                    saveField(this);
+                });
+            });
+        });
+        
+        // Alanı kaydetme fonksiyonu
+        async function saveField(inputElement) {
+            const field = inputElement.closest('.editable-field');
+            const textElement = field.querySelector('.editable-text');
+            const editBtn = field.querySelector('.edit-btn');
+            const newValue = inputElement.value.trim();
+            
+            // Hangi alan olduğunu belirle
+            let fieldName;
+            if (inputElement.id === 'modalStepNameInput') fieldName = 'name';
+            else if (inputElement.id === 'modalStepDescriptionInput') fieldName = 'description';
+            else if (inputElement.id === 'modalStepResponsibleInput') fieldName = 'responsible';
+            else if (inputElement.id === 'modalStepFilePathInput') fieldName = 'file_path';
+            
+            try {
+                const response = await fetch(`/step/${currentStepId}/update`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `field=${fieldName}&value=${encodeURIComponent(newValue)}`
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Modal'daki görünümü güncelle
+                    textElement.textContent = newValue || '-';
+                    
+                    // Ana sayfadaki görünümü güncelle
+                    const row = document.querySelector(`tr[data-step-id="${currentStepId}"]`);
+                    if (fieldName === 'name') {
+                        row.querySelector('.step-name').textContent = newValue;
+                    } else if (fieldName === 'responsible') {
+                        row.querySelector('.step-responsible').textContent = newValue || 'Sorumlu ekle...';
+                    }
+                    
+                    // Başarılı güncelleme görseli
+                    inputElement.classList.add('is-valid');
+                    setTimeout(() => input.classList.remove('is-valid'), 2000);
+                } else {
+                    // Hata görseli
+                    inputElement.classList.add('is-invalid');
+                    setTimeout(() => input.classList.remove('is-invalid'), 2000);
+                }
+            } catch (error) {
+                console.error('Alan güncellenirken hata oluştu:', error);
+                inputElement.classList.add('is-invalid');
+                setTimeout(() => input.classList.remove('is-invalid'), 2000);
+            }
+            
+            // Görünümü eski haline getir
+            textElement.classList.remove('d-none');
+            inputElement.classList.add('d-none');
+            editBtn.classList.remove('d-none');
+        }
+        
+        function getStepTypeName(type) {
+            const types = {
+                'main_step': 'Ana Adım',
+                'python_script': 'Python Script',
+                'sql_script': 'SQL Script',
+                'sql_procedure': 'SQL Prosedür',
+                'mail': 'Mail'
+            };
+            return types[type] || type;
+        }
     });
 </script>
 {% endblock %}

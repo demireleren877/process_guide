@@ -40,9 +40,7 @@
                         <div class="mb-3">
                             <label for="type" class="form-label">Adım Tipi</label>
                             <select class="form-select" id="type" name="type" required>
-                                {% if not parent_id %}
                                 <option value="main_step">Ana Adım</option>
-                                {% endif %}
                                 <option value="mail">Mail</option>
                                 <option value="python_script">Python Script</option>
                                 <option value="sql_script">SQL Script</option>

@@ -65,7 +65,8 @@ class Process(db.Model):
     description = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.now)
     is_started = db.Column(db.Boolean, default=False)
-    started_at = db.Column(db.DateTime)  
+    started_at = db.Column(db.DateTime)
+    version = db.Column(db.Integer, nullable=False, default=1)  # Versiyon kontrolü için
     steps = db.relationship('Step', 
     
                           backref='process', 
@@ -132,7 +133,8 @@ class Step(db.Model):
     parent_id = db.Column(db.Integer, db.ForeignKey('step.id', ondelete='CASCADE'), nullable=True)
     process_id = db.Column(db.Integer, db.ForeignKey('process.id', ondelete='CASCADE'), nullable=False)
     responsible = db.Column(db.String(100))
-    status = db.Column(db.String(20), default='not_started') 
+    status = db.Column(db.String(20), default='not_started')
+    version = db.Column(db.Integer, nullable=False, default=1)  # Versiyon kontrolü için
     dependencies = db.relationship('StepDependency', 
                                  foreign_keys='StepDependency.step_id',
                                  backref='dependent_step', 
@@ -304,6 +306,7 @@ def delete_process(process_id):
             StepDependency.query.filter_by(depends_on_id=step.id).delete()
 
         db.session.delete(process)
+        
         db.session.commit()
         
         flash('Süreç ve tüm ilişkili veriler başarıyla silindi', 'success')
@@ -328,6 +331,10 @@ def new_step(process_id):
         responsible = request.form.get('responsible')        
         if name and step_type:
             try:
+                # Ana adım tipi seçildiyse file_path ve procedure_params alanlarını temizle
+                if step_type == 'main_step':
+                    file_path = None
+                
                 step = Step(
                     name=name,
                     description=description,
@@ -362,8 +369,7 @@ def new_step(process_id):
                          process=process, 
                          parent_id=parent_id, 
                          parent_step=parent_step,
-                         full_order=full_order,
-                         step_types=['python_script', 'sql_script', 'sql_procedure', 'mail'])
+                         full_order=full_order)
 
 @app.route('/step/<int:step_id>/execute', methods=['POST'])
 def execute_step(step_id):
@@ -394,7 +400,8 @@ def execute_step(step_id):
 @app.route('/step/<int:step_id>/variables/new', methods=['GET', 'POST'])
 def new_variable(step_id):
     step = Step.query.get_or_404(step_id)    
-    if step.type not in ['python_script', 'sql_script', 'mail']:
+    if step.type == 'main_step' or step.type not in ['python_script', 'sql_script', 'sql_procedure', 'mail']:
+        flash('Bu adım tipine değişken eklenemez.', 'error')
         return redirect(url_for('process_detail', process_id=step.process_id))    
     if request.method == 'POST':
         name = request.form.get('name')
@@ -471,23 +478,22 @@ def delete_variable(variable_id):
 
 
 @app.route('/step/<int:step_id>/update', methods=['POST'])
-def update_step(step_id):
+def update_step_field(step_id):
     step = Step.query.get_or_404(step_id)
     field = request.form.get('field')
-    value = request.form.get('value')    
-    if field and value is not None:
-        if field == 'name':
-            step.name = value
-        elif field == 'description':
-            step.description = value
-        elif field == 'file_path':
-            step.file_path = value
-        elif field == 'responsible':
-            step.responsible = value
-        
+    value = request.form.get('value')
+    
+    allowed_fields = ['name', 'description', 'responsible', 'file_path']
+    if field not in allowed_fields:
+        return jsonify({'success': False, 'message': 'Geçersiz alan'})
+    
+    try:
+        setattr(step, field, value if value else None)
         db.session.commit()
-        return jsonify({'success': True})    
-    return jsonify({'success': False}), 400
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)})
 
 
 @app.route('/step/<int:step_id>/delete', methods=['POST'])
@@ -975,13 +981,28 @@ def update_process(process_id):
     try:
         process = Process.query.get_or_404(process_id)
         field = request.form.get('field')
-        value = request.form.get('value')        
+        value = request.form.get('value')
+        current_version = request.form.get('version', type=int)
+
+        # Versiyon kontrolü
+        if current_version and current_version != process.version:
+            return jsonify({
+                'success': False,
+                'error': 'Bu kayıt başka bir kullanıcı tarafından güncellenmiş. Lütfen sayfayı yenileyip tekrar deneyin.'
+            })
+
         if field == 'name':
             process.name = value
         elif field == 'description':
-            process.description = value            
+            process.description = value
+
+        process.version += 1  # Versiyon numarasını artır
         db.session.commit()
-        return jsonify({'success': True})
+        
+        return jsonify({
+            'success': True,
+            'new_version': process.version
+        })
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)})
@@ -1113,5 +1134,6 @@ def process_calendar():
 
 if __name__ == '__main__':
     with app.app_context():
-        db.create_all()  
+        # Sadece tabloları oluştur, silme işlemini kaldır
+        db.create_all()
     app.run(debug=True, port=5001) 

@@ -52,6 +52,9 @@
         padding: 2px;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
         max-width: 100%;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     
     .fc .fc-event-main {
@@ -59,6 +62,7 @@
         align-items: center;
         width: 100%;
         padding: 0 4px;
+        overflow: hidden;
     }
     
     .fc .fc-event-time {
@@ -74,7 +78,8 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        min-width: 0;
+        width: 100%;
+        display: block;
     }
     
     .fc .fc-event:hover {
@@ -375,6 +380,7 @@ window.addEventListener('load', function() {
             day: 'Gün'
         },
         firstDay: 1,
+        displayEventTime: false,
         events: function(info, successCallback, failureCallback) {
             // Her yeni event yüklemesinde renk havuzunu sıfırla
             availableColors = [...colorPool];
@@ -395,7 +401,6 @@ window.addEventListener('load', function() {
                     failureCallback(error);
                 });
         },
-        displayEventTime: true,
         eventTimeFormat: {
             hour: '2-digit',
             minute: '2-digit',
@@ -408,7 +413,6 @@ window.addEventListener('load', function() {
             return {
                 html: `
                     <div class="fc-event-main">
-                        <span class="fc-event-time">${arg.event.extendedProps.completionTime}</span>
                         <span class="fc-event-title">${arg.event.title}</span>
                     </div>
                 `

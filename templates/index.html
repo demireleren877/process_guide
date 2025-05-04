@@ -29,6 +29,25 @@
         resize: vertical;
         min-height: 60px;
     }
+    .progress {
+        position: relative;
+        height: 20px;
+    }
+    .progress-bar {
+        transition: width 0.3s ease;
+    }
+    .progress-text {
+        position: absolute;
+        width: 100%;
+        left: 0;
+        text-align: center;
+        line-height: 20px;
+        color: #fff;
+        font-weight: 700;
+        font-size: 0.875rem;
+        z-index: 1;
+        text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+    }
     #flowchartModal .modal-dialog {
         max-width: 70vw;
         margin: 1.75rem auto;
@@ -140,9 +159,9 @@
                         <textarea class="edit-textarea d-none">{{ process.description or '' }}</textarea>
                     </p>
                     <div class="d-flex justify-content-between align-items-center">
-                        <div class="progress" style="width: 70%;">
+                        <div class="progress flex-grow-1 me-2" style="height: 20px;">
                             <div class="progress-bar" role="progressbar" style="width: {{ process.get_completion_percentage() }}%">
-                                {{ process.get_completion_percentage() }}%
+                                <span class="progress-text">{{ process.get_completion_percentage() }}%</span>
                             </div>
                         </div>
                         <a href="{{ url_for('process_detail', process_id=process.id) }}" class="btn btn-sm btn-outline-primary">
@@ -203,6 +222,7 @@ let flowchartModal = null;
 
 document.addEventListener('DOMContentLoaded', function() {
     flowchartModal = new bootstrap.Modal(document.getElementById('flowchartModal'));
+    
     // PDF export butonuna tıklama
     document.getElementById('exportPdfBtn').addEventListener('click', function() {
         if (!network) return;
@@ -210,7 +230,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const dataUrl = network.canvas.frame.canvas.toDataURL();
         // jsPDF ile PDF oluştur
         const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF({ orientation: 'landscape' });
+        const pdf = new jsPDF({ orientation: 'portrait' });
         // PDF boyutunu ayarla
         const pageWidth = pdf.internal.pageSize.getWidth();
         const pageHeight = pdf.internal.pageSize.getHeight();
@@ -257,24 +277,32 @@ function showFlowchart(processId) {
                     arrows: 'to',
                     smooth: {
                         type: 'cubicBezier',
-                        forceDirection: 'vertical',
-                        roundness: 0.4
+                        forceDirection: 'horizontal',
+                        roundness: 0.3
                     },
                     width: 2,
                     shadow: true
                 },
                 layout: {
                     hierarchical: {
-                        direction: 'UD',
+                        direction: 'LR',
                         sortMethod: 'directed',
-                        levelSeparation: 150,
+                        levelSeparation: 200,
                         nodeSpacing: 100,
-                        treeSpacing: 200
+                        treeSpacing: 200,
+                        blockShifting: false,
+                        edgeMinimization: true,
+                        parentCentralization: true
                     }
                 },
                 physics: {
+                    enabled: true,
                     hierarchicalRepulsion: {
-                        nodeDistance: 200
+                        nodeDistance: 200,
+                        springLength: 200
+                    },
+                    stabilization: {
+                        iterations: 1000
                     }
                 },
                 interaction: {
@@ -338,6 +366,7 @@ function showFlowchart(processId) {
             this.classList.add('d-none');
             input.classList.remove('d-none');
             input.focus();
+            input.dataset.version = this.dataset.version; // Versiyon bilgisini sakla
         });
     });
 
@@ -356,6 +385,7 @@ function showFlowchart(processId) {
         input.addEventListener('blur', async function() {
             const span = this.previousElementSibling;
             const processId = span.dataset.processId;
+            const currentVersion = span.dataset.version;
             const newValue = this.value.trim();
 
             if (newValue && newValue !== span.textContent) {
@@ -365,14 +395,25 @@ function showFlowchart(processId) {
                         headers: {
                             'Content-Type': 'application/x-www-form-urlencoded',
                         },
-                        body: `field=name&value=${encodeURIComponent(newValue)}`
+                        body: `field=name&value=${encodeURIComponent(newValue)}&version=${currentVersion}`
                     });
 
-                    if (response.ok) {
+                    const result = await response.json();
+
+                    if (result.success) {
                         span.textContent = newValue;
+                        span.dataset.version = result.new_version; // Yeni versiyonu güncelle
+                    } else {
+                        // Hata mesajını göster
+                        alert(result.error || 'Güncelleme sırasında bir hata oluştu');
+                        // Sayfayı yenile
+                        if (result.error && result.error.includes('başka bir kullanıcı')) {
+                            window.location.reload();
+                        }
                     }
                 } catch (error) {
                     console.error('Güncelleme hatası:', error);
+                    alert('Güncelleme sırasında bir hata oluştu');
                 }
             }
 

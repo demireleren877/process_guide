@@ -298,50 +298,53 @@ class ProcessExecutor:
             }
 
     @staticmethod
-    def execute_step(step_type, file_path, **kwargs):        
+    def execute_step(step_type, file_path, **kwargs):
+        """Adımı tipine göre çalıştırır"""
         check_result = ProcessExecutor.check_process_started()
         if check_result:
             return check_result
-        if step_type == 'python_script':            
-            output_dir = kwargs.get('output_dir')
-            if output_dir:
-                ProcessExecutor._files_before = set(os.listdir(output_dir))
-            return ProcessExecutor.execute_python_script(file_path, output_dir,kwargs.get('variables'))
+            
+        if step_type == 'python_script':
+            return ProcessExecutor.execute_python_script(file_path, **kwargs)
         elif step_type == 'sql_script':
-            return ProcessExecutor.execute_sql_script(file_path, is_procedure=False)
+            return ProcessExecutor.execute_sql_script(file_path)
         elif step_type == 'sql_procedure':
-            procedure_params = kwargs.get('procedure_params', [])
-            return ProcessExecutor.execute_sql_script(file_path, is_procedure=True, procedure_params=procedure_params)
+            return ProcessExecutor.execute_sql_script(file_path, is_procedure=True)
         elif step_type == 'mail':
-            if kwargs.get('variables'):                
-                mail_configs = kwargs['variables']
-                if not isinstance(mail_configs, list):
-                    mail_configs = [mail_configs]                
-                results = []
-                success = True
-                error_messages = []                
-                for config in mail_configs:
-                    result = ProcessExecutor.send_mail(config)
-                    results.append(result)
-                    if not result['success']:
-                        success = False
-                        error_messages.append(result['error'])                
-                if success:
-                    return {
-                        'success': True,
-                        'output': 'Tüm mailler başarıyla gönderildi',
-                        'error': None
-                    }
-                else:
-                    return {
-                        'success': False,
-                        'output': None,
-                        'error': f'Mail gönderimi sırasında hatalar oluştu: {", ".join(error_messages)}'
-                    }
-            return ProcessExecutor.execute_mail_check()
+            variables = kwargs.get('variables', [])
+            if not variables:
+                return {
+                    'success': False,
+                    'output': None,
+                    'error': 'Mail değişkenleri bulunamadı'
+                }
+            
+            mail_config = None
+            for var in variables:
+                if var.var_type == 'mail_config':
+                    try:
+                        mail_config = json.loads(var.default_value) if var.default_value else {}
+                        break
+                    except:
+                        continue
+            
+            if not mail_config:
+                return {
+                    'success': False,
+                    'output': None,
+                    'error': 'Mail konfigürasyonu bulunamadı'
+                }
+            
+            result = ProcessExecutor.send_mail(mail_config)
+            if result['success']:
+                # Mail başarıyla gönderildiyse gönderim zamanını kaydet
+                mail_config['sent_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                var.default_value = json.dumps(mail_config)
+            
+            return result
         else:
             return {
-                'success': False,
-                'output': None,
-                'error': f"Desteklenmeyen adım tipi: {step_type}"
+                'success': True,
+                'output': 'Bu adım tipi otomatik çalıştırılmaz',
+                'error': None
             } 
