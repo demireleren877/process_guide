@@ -356,11 +356,9 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <div class="d-flex align-items-start gap-3">
-                    <div class="step-number">1</div>
-                    <div>
-                        <h4 class="modal-title mb-1" id="processName"></h4>
-                    </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-primary rounded-pill" id="stepNumber"></span>
+                    <h5 class="modal-title mb-0" id="processName"></h5>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
@@ -414,6 +412,23 @@
         </div>
     </div>
 </div>
+
+<!-- Gün Detay Modalı -->
+<div class="modal fade" id="dayDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title mb-0" id="dayDetailTitle"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="dayEvents" class="list-group">
+                    <!-- Gün içindeki olaylar buraya dinamik olarak eklenecek -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -435,6 +450,7 @@ window.addEventListener('load', function() {
     }
 
     const eventModal = new bootstrap.Modal(document.getElementById('eventModal'));
+    const dayDetailModal = new bootstrap.Modal(document.getElementById('dayDetailModal'));
     let currentProcessId = null;
     
     // Renk havuzu ve kullanılan renkleri takip etme
@@ -546,7 +562,9 @@ window.addEventListener('load', function() {
         eventClick: function(info) {
             currentProcessId = info.event.extendedProps.processId;
             
-            document.getElementById('processName').textContent = info.event.extendedProps.processName;
+            // Adım numarasını ayarla
+            document.getElementById('stepNumber').textContent = info.event.title.split(' - ')[0];
+            document.getElementById('processName').textContent = info.event.title.split(' - ')[1];
             document.getElementById('stepName').textContent = info.event.title.split(' - ')[1];
             document.getElementById('stepDescription').textContent = 
                 info.event.extendedProps.description || 'Açıklama bulunmuyor.';
@@ -590,6 +608,67 @@ window.addEventListener('load', function() {
             timeGrid: {
                 dayMaxEvents: 4
             }
+        },
+        dateClick: function(info) {
+            const clickedDate = info.date;
+            const formattedDate = clickedDate.toLocaleDateString('tr-TR', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+            
+            document.getElementById('dayDetailTitle').textContent = formattedDate;
+            
+            // O güne ait tüm olayları al
+            const dayEvents = calendar.getEvents().filter(event => {
+                const eventDate = new Date(event.start);
+                return eventDate.toDateString() === clickedDate.toDateString();
+            });
+            
+            const dayEventsContainer = document.getElementById('dayEvents');
+            dayEventsContainer.innerHTML = '';
+            
+            if (dayEvents.length === 0) {
+                dayEventsContainer.innerHTML = `
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-calendar-x fs-1"></i>
+                        <p class="mt-2">Bu güne ait tamamlanan adım bulunmuyor.</p>
+                    </div>
+                `;
+            } else {
+                dayEvents.forEach(event => {
+                    const eventElement = document.createElement('div');
+                    eventElement.className = 'list-group-item list-group-item-action';
+                    eventElement.style.borderLeft = `4px solid ${event.backgroundColor}`;
+                    eventElement.innerHTML = `
+                        <div class="d-flex w-100 justify-content-between align-items-center">
+                            <h6 class="mb-1">${event.title}</h6>
+                            <small class="text-muted">${event.extendedProps.completionTime}</small>
+                        </div>
+                        <p class="mb-1 text-muted">${event.extendedProps.description || 'Açıklama bulunmuyor.'}</p>
+                        <small class="text-muted">
+                            <i class="bi bi-person"></i> ${event.extendedProps.responsible || 'Atanmamış'}
+                        </small>
+                    `;
+                    eventElement.addEventListener('click', () => {
+                        dayDetailModal.hide();
+                        currentProcessId = event.extendedProps.processId;
+                        document.getElementById('stepNumber').textContent = event.title.split(' - ')[0];
+                        document.getElementById('processName').textContent = event.title.split(' - ')[1];
+                        document.getElementById('stepName').textContent = event.title.split(' - ')[1];
+                        document.getElementById('stepDescription').textContent = 
+                            event.extendedProps.description || 'Açıklama bulunmuyor.';
+                        document.getElementById('responsible').textContent = 
+                            event.extendedProps.responsible || 'Atanmamış';
+                        document.getElementById('completionDate').textContent = 
+                            event.extendedProps.completionDate;
+                        eventModal.show();
+                    });
+                    dayEventsContainer.appendChild(eventElement);
+                });
+            }
+            
+            dayDetailModal.show();
         }
     });
     

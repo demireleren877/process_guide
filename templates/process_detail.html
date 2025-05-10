@@ -5,8 +5,16 @@
 {% block content %}
 <div class="row mb-4">
     <div class="col">
-        <h1>{{ process.name }}</h1>
-        <p class="text-muted">{{ process.description }}</p>
+        <div class="d-flex align-items-center gap-2">
+            <h1 class="mb-0">{{ process.name }}</h1>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#filterCollapse" aria-expanded="false" aria-controls="filterCollapse" title="Filtreleri Göster/Gizle">
+                <i class="bi bi-funnel"></i>
+            </button>
+            <a href="{{ url_for('process_stats', process_id=process.id) }}" class="btn btn-info btn-sm" title="İstatistikler">
+                <i class="bi bi-bar-chart"></i>
+            </a>
+        </div>
+        <p class="text-muted mt-2">{{ process.description }}</p>
     </div>
     <div class="col text-end">
         {% if not process.is_started %}
@@ -19,6 +27,65 @@
                 <i class="bi bi-play-fill"></i> Süreci Başlat
             </button>
         </form>
+    </div>
+</div>
+
+<!-- Filtreleme Bölümü -->
+<div class="collapse" id="filterCollapse">
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <div class="form-floating">
+                        <input type="text" class="form-control" id="stepNameFilter">
+                        <label for="stepNameFilter">Adım Adı</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-floating">
+                        <input type="text" class="form-control" id="responsibleFilter">
+                        <label for="responsibleFilter">Sorumlu</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-floating">
+                        <select class="form-select" id="statusFilter">
+                            <option value="">Tümü</option>
+                            <option value="not_started">Başlamadı</option>
+                            <option value="waiting">Beklemede</option>
+                            <option value="in_progress">Devam Ediyor</option>
+                            <option value="done">Tamamlandı</option>
+                        </select>
+                        <label for="statusFilter">Durum</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-floating">
+                        <select class="form-select" id="typeFilter">
+                            <option value="">Tümü</option>
+                            <option value="main_step">Ana Adım</option>
+                            <option value="python_script">Python Script</option>
+                            <option value="sql_script">SQL Script</option>
+                            <option value="sql_procedure">SQL Prosedür</option>
+                            <option value="mail">Mail</option>
+                        </select>
+                        <label for="typeFilter">Adım Tipi</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-floating">
+                        <input type="date" class="form-control" id="startDateFilter">
+                        <label for="startDateFilter">Başlangıç Tarihi</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-floating">
+                        <input type="date" class="form-control" id="endDateFilter">
+                        <label for="endDateFilter">Bitiş Tarihi</label>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -42,7 +109,11 @@
                         data-step-type="{{ step.type }}"
                         data-file-path="{{ step.file_path or '' }}"
                         data-completed-at="{{ step.completed_at|format_datetime if step.completed_at else '' }}"
+                        data-completed-at-iso="{{ step.completed_at.strftime('%Y-%m-%d') if step.completed_at else '' }}"
                         data-description="{{ step.description or '' }}"
+                        data-step-name="{{ step.name }}"
+                        data-responsible="{{ step.responsible or '' }}"
+                        data-status="{{ step.status }}"
                         style="cursor: pointer;">
                         <td>
                             <div class="d-flex align-items-center">
@@ -766,6 +837,7 @@ function initializeModal() {
             const description = this.dataset.description;
             const filePath = this.dataset.filePath;
             const completedAt = this.dataset.completedAt;
+            const completedAtIso = this.dataset.completedAtIso;
             const stepNo = this.querySelector('td:first-child span')?.textContent || '';
             const stepName = this.querySelector('.step-name')?.textContent || '';
             const responsible = this.querySelector('.step-responsible')?.textContent.trim() || '';
@@ -940,6 +1012,128 @@ document.querySelectorAll('.dropdown-menu form').forEach(form => {
         }
     });
     });
+
+// Filtreleme fonksiyonları
+function applyFilters() {
+    const stepNameFilter = document.getElementById('stepNameFilter').value.toLowerCase();
+    const responsibleFilter = document.getElementById('responsibleFilter').value.toLowerCase();
+    const statusFilter = document.getElementById('statusFilter').value;
+    const typeFilter = document.getElementById('typeFilter').value;
+    const startDate = document.getElementById('startDateFilter').value;
+    const endDate = document.getElementById('endDateFilter').value;
+
+    const rows = document.querySelectorAll('tbody tr');
+    
+    rows.forEach(row => {
+        const stepName = row.dataset.stepName.toLowerCase();
+        const responsible = row.dataset.responsible.toLowerCase();
+        const status = row.dataset.status;
+        const type = row.dataset.stepType;
+        const completedAtIso = row.dataset.completedAtIso;
+
+        const matchesStepName = stepName.includes(stepNameFilter);
+        const matchesResponsible = responsible.includes(responsibleFilter);
+        const matchesStatus = !statusFilter || status === statusFilter;
+        const matchesType = !typeFilter || type === typeFilter;
+        let matchesDate = true;
+        if (startDate && completedAtIso) {
+            matchesDate = completedAtIso >= startDate;
+        }
+        if (endDate && completedAtIso) {
+            matchesDate = matchesDate && completedAtIso <= endDate;
+        }
+        if ((startDate || endDate) && !completedAtIso) {
+            matchesDate = false;
+        }
+
+        // Tüm filtreler eşleşiyorsa satırı göster, değilse gizle
+        if (matchesStepName && matchesResponsible && matchesStatus && matchesType && matchesDate) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
+// Filtre input'larına event listener'lar ekle
+document.getElementById('stepNameFilter').addEventListener('input', applyFilters);
+document.getElementById('responsibleFilter').addEventListener('input', applyFilters);
+document.getElementById('statusFilter').addEventListener('change', applyFilters);
+document.getElementById('typeFilter').addEventListener('change', applyFilters);
+document.getElementById('startDateFilter').addEventListener('change', applyFilters);
+document.getElementById('endDateFilter').addEventListener('change', applyFilters);
+
+// İstatistikleri hesapla ve göster
+function updateStatistics() {
+    const rows = Array.from(document.querySelectorAll('tbody tr'));
+    const total = rows.length;
+    let completed = 0;
+    const responsibleMap = {};
+    const typeMap = {};
+    rows.forEach(row => {
+        const status = row.dataset.status;
+        const responsible = row.dataset.responsible || 'Atanmamış';
+        const type = row.dataset.stepType;
+        if (status === 'done') completed++;
+        // Sorumlu
+        if (!responsibleMap[responsible]) responsibleMap[responsible] = 0;
+        if (status === 'done') responsibleMap[responsible]++;
+        // Tip
+        if (!typeMap[type]) typeMap[type] = 0;
+        typeMap[type]++;
+    });
+    document.getElementById('statTotalSteps').textContent = total;
+    document.getElementById('statCompletedSteps').textContent = completed;
+    document.getElementById('statCompletionRate').textContent = total ? `%${Math.round((completed/total)*100)}` : '%0';
+    // Sorumlu listesi
+    const responsibleList = document.getElementById('statResponsibleList');
+    responsibleList.innerHTML = '';
+    Object.entries(responsibleMap).forEach(([name, count]) => {
+        const li = document.createElement('li');
+        li.textContent = `${name}: ${count}`;
+        responsibleList.appendChild(li);
+    });
+    // Tip listesi
+    const typeList = document.getElementById('statTypeList');
+    typeList.innerHTML = '';
+    Object.entries(typeMap).forEach(([type, count]) => {
+        const li = document.createElement('li');
+        li.textContent = `${type}: ${count}`;
+        typeList.appendChild(li);
+    });
+}
+// Tablo filtrelendiğinde de güncelle
+const filterInputs = [
+    'stepNameFilter','responsibleFilter','statusFilter','typeFilter','startDateFilter','endDateFilter'
+];
+filterInputs.forEach(id => {
+    document.getElementById(id).addEventListener('input', updateStatistics);
+    document.getElementById(id).addEventListener('change', updateStatistics);
+});
+document.addEventListener('DOMContentLoaded', updateStatistics);
+// CSV export
+function tableToCSV() {
+    const rows = Array.from(document.querySelectorAll('table tbody tr')).filter(row => row.style.display !== 'none');
+    const headers = Array.from(document.querySelectorAll('table thead th')).map(th => th.textContent.trim());
+    let csv = headers.join(',') + '\n';
+    rows.forEach(row => {
+        const cells = Array.from(row.querySelectorAll('td')).map(td => '"'+td.textContent.trim().replace(/"/g,'""')+'"');
+        csv += cells.join(',') + '\n';
+    });
+    return csv;
+}
+document.getElementById('exportCsvBtn').addEventListener('click', function() {
+    const csv = tableToCSV();
+    const blob = new Blob([csv], {type: 'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'adimlar.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+});
 </script>
 {% endblock %}
 

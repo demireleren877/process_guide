@@ -4,6 +4,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import Select
 import pandas as pd
 import time
 import os
@@ -30,7 +31,7 @@ class ProcessBot:
             print("Chrome driver başlatma hatası: {}".format(str(e)))
             sys.exit(1)
         
-    def login(self, url="http://127.0.0.1:5001"):
+    def login(self, url="https://process-guide.vercel.app/"):
         """Web arayüzüne giriş yap"""
         try:
             self.driver.get(url)
@@ -79,7 +80,7 @@ class ProcessBot:
             traceback.print_exc()
             raise
         
-    def add_step(self, name, responsible, description, step_type="python_script", parent_step=None):
+    def add_step(self, name, responsible, description, parent_step=None):
         """Sürece yeni adım ekle"""
         try:
             print("Yeni adım ekleniyor: {}".format(name))
@@ -168,8 +169,8 @@ class ProcessBot:
             desc_input.send_keys(description)
             
             # Adım tipini seç
-            type_select = self.driver.find_element(By.NAME, "type")
-            type_select.send_keys(step_type)
+            type_select = Select(self.driver.find_element(By.NAME, "type"))
+            type_select.select_by_value("main_step")
             
             # Formu gönder
             submit_btn = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
@@ -191,7 +192,7 @@ class ProcessBot:
             print("Excel dosyası okunuyor: {}".format(self.excel_path))
             try:
                 # Header olmadan oku ve ilk satırı atla
-                df = pd.read_excel("ProcessGuide_2503.xlsx", sheet_name="2503", engine='openpyxl', header=None, skiprows=1)
+                df = pd.read_excel("ProcessGuide_2025.xlsx", sheet_name="2025", engine='openpyxl', header=None, skiprows=1)
                 print("Excel dosyası başarıyla okundu")
                 print("Toplam {} satır bulundu".format(len(df)))
                 
@@ -207,8 +208,8 @@ class ProcessBot:
                 return
             
             # Süreç adı ve açıklaması
-            process_name = "Data Preparation"
-            description = "Data Preparation süreci"
+            process_name = "Ortalama Muallak"
+            description = "Ortalama Muallak"
             
             # Süreci oluştur
             self.create_process(process_name, description)
@@ -236,13 +237,13 @@ class ProcessBot:
                     print(f"  Açıklama: {description}")
                     
                     # Ana adım mı kontrol et
-                    if '.' not in str(step_no):  # Ana adım
+                    if '.' not in str(step_no) or str(step_no).endswith('.0'):  # Ana adım veya x.0 formatında
                         print("Ana adım ekleniyor: {}".format(name))
                         self.add_step(name, responsible, description)
                     else:  # Alt adım
                         # Parent adımı nokta sayısına göre belirle
                         parts = step_no.split('.')
-                        if len(parts) == 2:  # Örnek: 1.1
+                        if len(parts) == 2 and not parts[1] == '0':  # Örnek: 1.1
                             parent_no = parts[0]  # Ana adımın altına ekle
                         else:  # Örnek: 1.1.1
                             parent_no = '.'.join(parts[:-1])  # Son parçayı çıkar
@@ -305,6 +306,10 @@ class ProcessBot:
                     desc_input = self.driver.find_element(By.NAME, "description")
                     desc_input.send_keys(description)
                     
+                    # Adım tipini seç
+                    type_select = Select(self.driver.find_element(By.NAME, "type"))
+                    type_select.select_by_value("main_step")  # Alt adımlar için de main_step seç
+                    
                     # Formu gönder
                     submit_btn = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
                     submit_btn.click()
@@ -342,7 +347,7 @@ class ProcessBot:
 def main():
     try:
         # Excel dosyasının yolunu belirt
-        excel_path = "ProcessGuide_2503.xlsx"
+        excel_path = "ProcessGuide_2025.xlsx"
         
         if not os.path.exists(excel_path):
             print("Hata: Excel dosyası bulunamadı: {}".format(excel_path))

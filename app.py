@@ -7,6 +7,7 @@ import os
 from executor import ProcessExecutor
 import json
 import cx_Oracle
+from collections import Counter
 
 app = Flask(__name__)
 CORS(app)
@@ -1121,6 +1122,7 @@ def get_completed_steps():
                 'processName': step.process.name,
                 'stepType': step.type,
                 'description': step.description or '',
+                'responsible': step.responsible or '',
                 'completionTime': completion_time.strftime('%H:%M'),
                 'completionDate': completion_time.strftime('%d.%m.%Y %H:%M')
             }
@@ -1131,6 +1133,60 @@ def get_completed_steps():
 @app.route('/process/calendar')
 def process_calendar():
     return render_template('process_calendar.html')
+
+@app.route('/process/<int:process_id>/stats')
+def process_stats(process_id):
+    process = Process.query.get_or_404(process_id)
+    steps = Step.query.filter_by(process_id=process_id).all()
+    total_steps = len(steps)
+    completed_steps = sum(1 for s in steps if s.status == 'done')
+    # Aktif sorumlular
+    responsibles = sorted(set(s.responsible for s in steps if s.responsible))
+    active_responsibles = len(responsibles)
+
+    # Completion data for doughnut chart: [done, in_progress, waiting, not_started]
+    status_map = {'done': 0, 'in_progress': 1, 'waiting': 2, 'not_started': 3}
+    completion_data = [0, 0, 0, 0]
+    for s in steps:
+        idx = status_map.get(s.status, 3)
+        completion_data[idx] += 1
+
+    # Step types for bar chart
+    type_map = {}
+    for s in steps:
+        key = s.type or 'Bilinmiyor'
+        if key not in type_map:
+            type_map[key] = 0
+        type_map[key] += 1
+    step_types = list(type_map.keys())
+    step_type_counts = list(type_map.values())
+
+    # Timeline chart: completed steps per hour
+    timeline_counter = Counter()
+    for s in steps:
+        if s.completed_at:
+            date_str = s.completed_at.strftime('%Y-%m-%d %H:00')
+            timeline_counter[date_str] += 1
+    timeline_dates = sorted(timeline_counter.keys())
+    timeline_counts = []
+    cumulative = 0
+    for d in timeline_dates:
+        cumulative += timeline_counter[d]
+        timeline_counts.append(cumulative)
+
+    return render_template(
+        'process_stats.html',
+        process=process,
+        total_steps=total_steps,
+        completed_steps=completed_steps,
+        active_responsibles=active_responsibles,
+        responsibles=responsibles,
+        completion_data=completion_data,
+        step_types=step_types,
+        step_type_counts=step_type_counts,
+        timeline_dates=timeline_dates,
+        timeline_counts=timeline_counts
+    )
 
 if __name__ == '__main__':
     with app.app_context():
