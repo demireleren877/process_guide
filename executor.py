@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 import os
 import pandas as pd
@@ -218,41 +219,59 @@ class ProcessExecutor:
         finally:
             pythoncom.CoUninitialize()
 
+    import shutil
+
     @staticmethod
-    def execute_python_script(file_path, output_dir=None,variables=None):        
+    def execute_python_script(file_path, output_dir=None, variables=None):
+        # Süreç kontrolü
         check_result = ProcessExecutor.check_process_started()
         if check_result:
             return check_result
         var_list = []
-        for variable in variables:            
-            var_list.append({"id":variable.name,"default_value":variable.default_value})
+        for variable in variables:
+            var_list.append({"id": variable.name, "default_value": variable.default_value})
         variables = json.dumps(var_list)
-        try:            
+        try:
+            # Dosya yolundaki tırnak işaretlerini kaldır ve yolu normalize et
             file_path = file_path.strip('"').strip("'")
-            file_path = os.path.normpath(file_path)       
+            file_path = os.path.normpath(file_path)
+
+            # Çıktı dizinini ayarla
             env = os.environ.copy()
-            if output_dir:                
+            if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
-                env['OUTPUT_DIR'] = output_dir           
-                ProcessExecutor._files_before = set(os.listdir(output_dir))            
-            result = subprocess.run(['python', file_path], 
-                                 capture_output=True, 
-                                 text=True,
-                                 check=True,
-                                 input=variables,
-                                 env=env,
-                                 cwd=output_dir if output_dir else None)       
+                env['OUTPUT_DIR'] = output_dir
+                ProcessExecutor._files_before = set(os.listdir(output_dir))
+            # Python scriptini çalıştır
+            result = subprocess.run(['python', file_path],
+                                capture_output=True,
+                                text=True,
+                                check=True,
+                                input=variables,
+                                env=env,
+                                cwd=output_dir if output_dir else None)
+            # Çıktı dosyasını kontrol et
             output_file = None
-            if output_dir and hasattr(ProcessExecutor, '_files_before'):                
+            moved_file_path = None
+            if output_dir and hasattr(ProcessExecutor, '_files_before'):
                 files_after = set(os.listdir(output_dir))
                 new_files = files_after - ProcessExecutor._files_before
                 if new_files:
-                    output_file = list(new_files)[0]              
+                    output_file = list(new_files)[0]
+                    # Dosyayı indirilenler klasörüne taşı
+                    downloads_dir = os.path.join(os.environ['USERPROFILE'], 'Downloads')
+                    os.makedirs(downloads_dir, exist_ok=True)
+                    src_path = os.path.join(output_dir, output_file)
+                    dst_path = os.path.join(downloads_dir, output_file)
+                    shutil.move(src_path, dst_path)
+                    moved_file_path = dst_path
+
             return {
                 'success': True,
                 'output': result.stdout,
                 'error': result.stderr,
-                'output_file': output_file
+                'output_file': output_file,
+                'moved_file_path': moved_file_path
             }
         except subprocess.CalledProcessError as e:
             return {
@@ -325,7 +344,12 @@ class ProcessExecutor:
             return check_result
             
         if step_type == 'python_script':
-            return ProcessExecutor.execute_python_script(file_path, **kwargs)
+            # Python script çalıştırılmadan önce çıktı dizinindeki dosyaları kaydet
+            output_dir = os.path.join(os.environ['USERPROFILE'], 'Downloads')
+            print(f"[DEBUG] output_dir: {output_dir}")
+            if output_dir:
+                ProcessExecutor._files_before = set(os.listdir(output_dir))
+            return ProcessExecutor.execute_python_script(file_path, output_dir,kwargs.get('variables'))
         elif step_type == 'sql_script':
             return ProcessExecutor.execute_sql_script(file_path)
         elif step_type == 'sql_procedure':
