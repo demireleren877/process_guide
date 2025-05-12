@@ -8,6 +8,7 @@ from executor import ProcessExecutor
 import json
 import cx_Oracle
 from collections import Counter
+import re
 
 app = Flask(__name__)
 CORS(app)
@@ -662,69 +663,36 @@ def check_mail_replies(step_id):
     step = Step.query.get_or_404(step_id)
     process = step.process    
     if step.type != 'mail':
-        return jsonify({
-            'success': False,
-            'error': 'Bu adım mail tipi değil'
-        })    
+        return jsonify({'success': False, 'error': 'Bu adım mail tipi değil'})    
     if not process.is_started:
-        return jsonify({
-            'success': False,
-            'error': 'Süreç henüz başlatılmamış'
-        })    
+        return jsonify({'success': False, 'error': 'Süreç henüz başlatılmamış'})    
+
     mail_variables = StepVariable.query.filter_by(step_id=step_id, var_type='mail_config').all() 
     result = ProcessExecutor.execute_mail_check(start_date=process.started_at)
-    if not result['success'] or not result['output']:
-        return jsonify({
-            'success': True,
-            'output': [],
-            'mail_statuses': []
-        })    
-    received_mails = result['output']
+    received_mails = result['output'] if result['success'] and result['output'] else []
     all_replies_received = True
-    has_active_mail = False    
+    has_active_mail = False
+
+    def clean_subject(s):
+        return re.sub(r'^(re|cevap|fw|fwd)\s*[:：-]*\s*', '', s, flags=re.IGNORECASE).strip().lower()
+
     for var in mail_variables:
         try:
             config = json.loads(var.default_value) if var.default_value else {}
             subject = config.get('subject', '')
-            sent_at = config.get('sent_at')
             active = config.get('active', False)
             if not subject or not active:
-                continue                
-            has_active_mail = True              
-            if not sent_at:
-                var.mail_status = 'waiting'
+                continue
+            has_active_mail = True
+            if not config.get('sent_at'):
+                var.mail_status = 'not_sent'
                 all_replies_received = False
-                continue         
-            mail_sent_at = datetime.strptime(sent_at, '%Y-%m-%d %H:%M:%S')            
-            if mail_sent_at < process.started_at:
-                check_date = process.started_at
-            else:
-                check_date = mail_sent_at      
-            existing_replies = MailReply.query.filter_by(
-                variable_id=var.id,
-                is_reply=True
-            ).all()
-            has_reply = False
-            for mail in received_mails:                
-                mail_received_at = datetime.strptime(mail['received'], '%Y-%m-%d %H:%M:%S')
-                if mail_received_at < check_date:
-                    continue                
-                mail_subject = mail['subject'].lower().strip()
-                original_subject = subject.lower().strip()       
-                is_reply = False                
-                if mail_subject.startswith('re:'):                    
-                    mail_subject_clean = mail_subject.replace('re:', '').strip()                    
-                    if mail_subject_clean == original_subject:
-                        is_reply = True              
-                elif original_subject.startswith('re:'):                    
-                    original_subject_clean = original_subject.replace('re:', '').strip()
-                    if mail_subject == original_subject_clean:
-                        is_reply = True               
-                elif mail_subject == original_subject:
-                    is_reply = True                
-                if is_reply:
-                    has_reply = True                    
-                    if not any(reply.subject == mail['subject'] for reply in existing_replies):
+                continue
+            found_reply = False
+            for mail in received_mails:
+                if clean_subject(mail['subject']) == clean_subject(subject):
+                    mail_received_at = datetime.strptime(mail['received'], '%Y-%m-%d %H:%M:%S')
+                    if not MailReply.query.filter_by(variable_id=var.id, subject=mail['subject'], sender=mail['sender'], received_at=mail_received_at).first():
                         reply = MailReply(
                             variable_id=var.id,
                             subject=mail['subject'],
@@ -733,36 +701,33 @@ def check_mail_replies(step_id):
                             original_subject=subject,
                             is_reply=True
                         )
-                        db.session.add(reply)            
-            if has_reply:
-                var.mail_status = 'received'
-            else:
+                        db.session.add(reply)
+                    var.mail_status = 'received'
+                    found_reply = True
+                    break
+            if not found_reply and config.get('sent_at'):
                 var.mail_status = 'waiting'
-                all_replies_received = False            
+                all_replies_received = False
         except Exception as e:
             app.logger.error(f"Mail kontrolü sırasında hata: {str(e)}")
-            continue    
-    db.session.commit()   
+            continue
+    db.session.commit()
     if has_active_mail and all_replies_received:
         step.status = 'done'
     else:
         step.status = 'waiting'
-    db.session.commit()   
+    db.session.commit()
+    # mail_statuses listesini doldur
     response_data = {
         'success': True,
         'output': received_mails,
         'mail_statuses': []
-    }   
+    }
     for var in mail_variables:
         try:
             config = json.loads(var.default_value) if var.default_value else {}
             replies = MailReply.query.filter_by(variable_id=var.id, is_reply=True).all()
             updated_config = config.copy()
-            if 'sent_at' not in updated_config:
-                if updated_config.get('active', False):
-                    updated_config['sent_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    var.default_value = json.dumps(updated_config)
-                    db.session.commit()            
             status_data = {
                 'variable_id': var.id,
                 'subject': updated_config.get('subject', ''),
@@ -776,7 +741,7 @@ def check_mail_replies(step_id):
             }
             response_data['mail_statuses'].append(status_data)
         except:
-            continue    
+            continue
     return jsonify(response_data)
 
 

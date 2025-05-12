@@ -1,98 +1,139 @@
 // Mail durumu yönetimi için merkezi fonksiyonlar
 class MailStatusManager {
     static async checkMailReplies(stepId) {
+        console.log('Starting checkMailReplies for stepId:', stepId); // Debug log
+
+        // Ana sayfadaki ve değişkenler modalındaki tüm mail durumlarını seç
         const mailStatuses = document.querySelectorAll(`tr[data-step-id="${stepId}"] .mail-status, #variables-data-${stepId} .mail-status, #variablesModal .mail-status`);
-        if (!mailStatuses.length) return;
+        console.log('Found mail status elements:', mailStatuses.length); // Debug log
+        
+        if (!mailStatuses.length) {
+            console.log('No mail status elements found, returning'); // Debug log
+            return;
+        }
 
         try {
+            console.log('Sending request to check mail replies...'); // Debug log
             const response = await fetch(`/step/${stepId}/check-mail-replies`, {
                 method: 'POST'
             });
+            console.log('Response received:', response.status); // Debug log
             
-            if (response.ok) {
-                const result = await response.json();
-                if (result.success) {
-                    // Mail durumlarını güncelle
-                    const mailStatuses = {};
-                    result.mail_statuses.forEach(status => {
-                        mailStatuses[status.variable_id] = status.status;
-                        // Mail konfigürasyonunu güncelle
-                        const statusElement = document.querySelector(`.mail-status[data-variable-id="${status.variable_id}"]`);
-                        if (statusElement) {
-                            // Mail durumu HTML'ini güncelle
-                            let statusHtml = '';
-                            if (status.status === 'received') {
-                                statusHtml = `
-                                    <div>
-                                        <i class="bi bi-check-circle-fill"></i>
-                                        <span class="status-text">Yanıt Alındı</span>
-                                        ${status.replies && status.replies.length > 0 ? `
-                                            <div class="reply-details mt-2">
-                                                <small class="d-block text-muted">Son yanıt:</small>
-                                                <div class="reply-info">
-                                                    <strong>${status.replies[status.replies.length - 1].sender}</strong>
-                                                    <span class="mx-1">-</span>
-                                                    <span>${status.replies[status.replies.length - 1].received_at}</span>
-                                                </div>
-                                            </div>
-                                        ` : ''}
-                                    </div>
-                                `;
-                            } else if (status.config && status.config.active) {
-                                statusHtml = `
-                                    <div>
-                                        <i class="bi bi-hourglass"></i>
-                                        <span class="status-text">Yanıt Bekleniyor</span>
-                                        ${status.config.sent_at ? `
-                                            <div class="reply-details mt-2">
-                                                <small class="d-block text-muted">Gönderilme:</small>
-                                                <div class="reply-info">
-                                                    <span>${status.config.sent_at}</span>
-                                                </div>
-                                            </div>
-                                        ` : ''}
-                                    </div>
-                                `;
-                            } else {
-                                statusHtml = `
-                                    <div>
-                                        <i class="bi bi-dash-circle"></i>
-                                        <span class="status-text">Pasif</span>
-                                    </div>
-                                `;
-                            }
-                            
-                            // Mail durumu sınıflarını güncelle
-                            statusElement.className = `mail-status me-2 ${status.status === 'received' ? 'has-reply text-success' : status.config && status.config.active ? 'no-reply text-warning' : ''}`;
-                            statusElement.innerHTML = statusHtml;
-                            
-                            // Config verisini güncelle
-                            statusElement.dataset.config = JSON.stringify(status.config);
+            const result = await response.json();
+            console.log('Mail check response:', result); // Debug log
+
+            if (result.success && result.mail_statuses) {
+                console.log('Processing mail statuses:', result.mail_statuses); // Debug log
+                let allActiveMailsReplied = true;
+                let hasActiveMail = false;
+
+                result.mail_statuses.forEach(statusData => {
+                    console.log('Processing mail status data:', statusData); // Debug log
+                    
+                    // Hem ana sayfadaki hem de modaldaki durumları güncelle
+                    const statusElements = document.querySelectorAll(`.mail-status[data-variable-id="${statusData.variable_id}"]`);
+                    console.log('Found status elements for variable:', statusData.variable_id, 'count:', statusElements.length); // Debug log
+                    
+                    // Config'i parse et
+                    let config = {};
+                    statusElements.forEach(status => {
+                        try {
+                            const configStr = status.dataset.config;
+                            console.log('Raw config string:', configStr); // Debug log
+                            config = JSON.parse(configStr);
+                            console.log('Parsed config:', config); // Debug log
+                        } catch (e) {
+                            console.error('Config parsing error:', e);
+                            console.error('Config string was:', status.dataset.config); // Debug log
                         }
                     });
                     
-                    // Adım durumunu güncelle
-                    const stepRow = document.querySelector(`tr[data-step-id="${stepId}"]`);
-                    if (stepRow) {
-                        const statusButton = stepRow.querySelector('.status-button');
-                        if (statusButton) {
-                            // Tüm mail durumlarını kontrol et
-                            const allReceived = Object.values(mailStatuses).every(status => status === 'received');
-                            const hasWaiting = Object.values(mailStatuses).some(status => status === 'waiting');
-                            
-                            if (allReceived) {
-                                statusButton.className = 'btn btn-sm dropdown-toggle status-button btn-success';
-                                statusButton.textContent = 'Tamamlandı';
-                            } else if (hasWaiting) {
-                                statusButton.className = 'btn btn-sm dropdown-toggle status-button btn-warning';
-                                statusButton.textContent = 'Beklemede';
-                            }
+                    if (config.active) {
+                        console.log('Mail is active'); // Debug log
+                        hasActiveMail = true;
+                        const hasReplies = statusData.status === 'received' && statusData.replies && statusData.replies.length > 0;
+                        console.log('Has replies:', hasReplies, 'Status:', statusData.status, 'Replies:', statusData.replies); // Debug log
+                        
+                        if (!hasReplies) {
+                            console.log('Setting allActiveMailsReplied to false'); // Debug log
+                            allActiveMailsReplied = false;
                         }
                     }
+                    
+                    statusElements.forEach(status => {
+                        const hasReplies = statusData.status === 'received' && statusData.replies && statusData.replies.length > 0;
+                        console.log('Updating status element. Has replies:', hasReplies);
+                        
+                        if (statusData.status === 'not_sent') {
+                            status.className = 'mail-status me-2 no-reply text-warning';
+                            status.innerHTML = `
+                                <div>
+                                    <i class="bi bi-envelope"></i>
+                                    <span class="status-text">Gönderilmedi</span>
+                                </div>
+                            `;
+                        } else if (hasReplies) {
+                            const lastReply = statusData.replies[statusData.replies.length - 1];
+                            console.log('Last reply:', lastReply); // Debug log
+                            
+                            status.className = 'mail-status me-2 has-reply text-success';
+                            status.innerHTML = `
+                                <div>
+                                    <i class="bi bi-check-circle-fill"></i>
+                                    <span class="status-text">Yanıt Alındı</span>
+                                    <div class="reply-details mt-2">
+                                        <small class="d-block text-muted">Son yanıt:</small>
+                                        <div class="reply-info">
+                                            <strong>${lastReply.sender}</strong>
+                                            <span class="mx-1">-</span>
+                                            <span>${new Date(lastReply.received_at).toLocaleString('tr-TR')}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        } else if (config.active) {
+                            console.log('Mail is active but no replies'); // Debug log
+                            status.className = 'mail-status me-2 no-reply text-warning';
+                            status.innerHTML = `
+                                <div>
+                                    <i class="bi bi-hourglass"></i>
+                                    <span class="status-text">Yanıt Bekleniyor</span>
+                                    ${config.sent_at ? `
+                                    <div class="reply-details mt-2">
+                                        <small class="d-block text-muted">Gönderilme:</small>
+                                        <div class="reply-info">
+                                            <span>${new Date(config.sent_at).toLocaleString('tr-TR')}</span>
+                                        </div>
+                                    </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        } else {
+                            console.log('Mail is inactive'); // Debug log
+                            status.className = 'mail-status me-2';
+                            status.innerHTML = `
+                                <div>
+                                    <i class="bi bi-dash-circle"></i>
+                                    <span class="status-text">Pasif</span>
+                                </div>
+                            `;
+                        }
+                    });
+                });
+
+                // Eğer aktif mail varsa ve tüm aktif maillere yanıt geldiyse adımı tamamlandı olarak işaretle
+                if (hasActiveMail && allActiveMailsReplied) {
+                    console.log('All mails replied, updating step status to done'); // Debug log
+                    this.updateStepStatus(stepId, 'done', 'Tamamlandı');
+                } else {
+                    console.log('Not all mails replied:', { hasActiveMail, allActiveMailsReplied }); // Debug log
                 }
+            } else {
+                console.log('Response was not successful or no mail statuses:', result); // Debug log
             }
         } catch (error) {
-            console.error('Mail durumları kontrol edilirken hata oluştu:', error);
+            console.error('Mail durumu kontrol edilirken hata oluştu:', error);
+            console.error('Error details:', error.stack); // Debug log
         }
     }
 

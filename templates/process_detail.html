@@ -387,9 +387,6 @@
                 </div>
             </div>
             <div class="modal-footer border-0">
-                <button type="button" class="btn btn-outline-primary btn-sm" id="viewVariables">
-                    <i class="bi bi-gear me-2"></i>Değişkenler
-                </button>
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Kapat</button>
             </div>
         </div>
@@ -792,7 +789,6 @@
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         initializeMailCards();
-        initializeMailStatusCheck();
         initializeProcessStartButton();
     });
 
@@ -815,21 +811,6 @@
             button.addEventListener('click', () => {
                 const variableId = button.dataset.variableId;
                 deleteVariable(variableId);
-            });
-        });
-    }
-
-    function initializeMailStatusCheck() {
-        // Mail durumu güncelleme butonlarına event listener ekle
-        document.querySelectorAll('.check-mail-status').forEach(button => {
-            button.addEventListener('click', async () => {
-                const stepId = button.dataset.stepId;
-                button.disabled = true;
-                try {
-                    await checkMailReplies(stepId);
-                } finally {
-                    button.disabled = false;
-                }
             });
         });
     }
@@ -890,16 +871,28 @@
                             let config;
                             try {
                                 config = JSON.parse(configStr);
+                                // Gönderim zamanını ekle
+                                config.sent_at = new Date().toISOString();
+                                // Config'i güncelle
+                                status.dataset.config = JSON.stringify(config);
                             } catch (e) {
                                 console.error('Config parsing error:', e);
                                 return;
                             }
                             
                             if (config && config.active) {
-                                status.className = 'mail-status me-2 no-reply';
+                                status.className = 'mail-status me-2 no-reply text-warning';
                                 status.innerHTML = `
-                                    <i class="bi bi-hourglass"></i>
-                                    <span class="status-text">Yanıt Bekleniyor</span>
+                                    <div>
+                                        <i class="bi bi-hourglass"></i>
+                                        <span class="status-text">Yanıt Bekleniyor</span>
+                                        <div class="reply-details mt-2">
+                                            <small class="d-block text-muted">Gönderilme:</small>
+                                            <div class="reply-info">
+                                                <span>${new Date().toLocaleString('tr-TR')}</span>
+                                            </div>
+                                        </div>
+                                    </div>
                                 `;
                             } else {
                                 status.className = 'mail-status me-2';
@@ -988,92 +981,6 @@
                 'btn-secondary'
             }`;
             statusButton.textContent = text;
-        }
-    }
-
-    // Mail yanıt durumunu kontrol et ve adım durumunu güncelle
-    async function checkMailReplies(stepId) {
-        // Ana sayfadaki ve değişkenler modalındaki tüm mail durumlarını seç
-        const mailStatuses = document.querySelectorAll(`tr[data-step-id="${stepId}"] .mail-status, #variables-data-${stepId} .mail-status, #variablesModal .mail-status`);
-        if (!mailStatuses.length) return;
-
-        try {
-            const response = await fetch(`/step/${stepId}/check-mail-replies`, {
-                method: 'POST'
-            });
-            const result = await response.json();
-
-            if (result.success && result.mail_statuses) {
-                let allActiveMailsReplied = true;
-                let hasActiveMail = false;
-
-                result.mail_statuses.forEach(statusData => {
-                    // Hem ana sayfadaki hem de modaldaki durumları güncelle
-                    const statusElements = document.querySelectorAll(`.mail-status[data-variable-id="${statusData.variable_id}"]`);
-                    
-                    // Config'i parse et
-                    let config = {};
-                    statusElements.forEach(status => {
-                        try {
-                            config = JSON.parse(status.dataset.config);
-                        } catch (e) {
-                            console.error('Config parsing error:', e);
-                        }
-                    });
-                    console.log('Config:', config.active);
-                    
-                    if (config.active) {
-                        hasActiveMail = true;
-                        if (!(statusData.status === 'received' && statusData.replies.length > 0)) {
-                            allActiveMailsReplied = false;
-                        }
-                    }
-                    
-                    statusElements.forEach(status => {
-                        if (statusData.status === 'received' && statusData.replies.length > 0) {
-                            const lastReply = statusData.replies[statusData.replies.length - 1];
-                            status.className = 'mail-status me-2 has-reply';
-                            status.innerHTML = `
-                                <div>
-                                    <i class="bi bi-check-circle-fill"></i>
-                                    <span class="status-text">Yanıt Alındı</span>
-                                    <div class="reply-details mt-2">
-                                        <small class="d-block text-muted">Son yanıt:</small>
-                                        <div class="reply-info">
-                                            <strong>${lastReply.sender}</strong>
-                                            <span class="mx-1">-</span>
-                                            <span>${lastReply.received_at}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            `;
-                        } else if (config.active) {
-                            status.className = 'mail-status me-2 no-reply';
-                            status.innerHTML = `
-                                <div>
-                                    <i class="bi bi-hourglass"></i>
-                                    <span class="status-text">Yanıt Bekleniyor</span>
-                                </div>
-                            `;
-                        } else {
-                            status.className = 'mail-status me-2';
-                            status.innerHTML = `
-                                <div>
-                                    <i class="bi bi-dash-circle"></i>
-                                    <span class="status-text">Pasif</span>
-                                </div>
-                            `;
-                        }
-                    });
-                });
-
-                // Eğer aktif mail varsa ve tüm aktif maillere yanıt geldiyse adımı tamamlandı olarak işaretle
-                if (hasActiveMail && allActiveMailsReplied) {
-                    updateStepStatus(stepId, 'done', 'Tamamlandı');
-                }
-            }
-        } catch (error) {
-            console.error('Mail durumu kontrol edilirken hata oluştu:', error);
         }
     }
 
@@ -1551,11 +1458,17 @@
 </script>
 {% endblock %}
 {% macro render_mail_status(var, config, step) %}
-<div class="mail-status me-2 {% if var.mail_status == 'received' %}has-reply{% else %}no-reply{% endif %}" 
+{% set config_json = config|tojson|safe %}
+<div class="mail-status me-2 {% if var.mail_status == 'received' and config.get('active', False) %}has-reply text-success{% elif config.get('active', False) %}no-reply text-warning{% endif %}" 
     data-mail-subject="{{ config.get('subject', '') }}"
     data-variable-id="{{ var.id }}"
-    data-config="{{ config }}">
-    {% if var.mail_status == 'received' and get_mail_replies(var.id) %}
+    data-config='{{ config_json }}'>
+    {% if not config.get('active', False) %}
+    <div>
+        <i class="bi bi-dash-circle"></i>
+        <span class="status-text">Pasif</span>
+    </div>
+    {% elif var.mail_status == 'received' and get_mail_replies(var.id) %}
     <div>
         <i class="bi bi-check-circle-fill"></i>
         <span class="status-text">Yanıt Alındı</span>
@@ -1566,25 +1479,17 @@
             <div class="reply-info">
                 <strong>{{ replies[-1].sender }}</strong>
                 <span class="mx-1">-</span>
-                <span>{{ replies[-1].received_at }}</span>
+                <span>{{ replies[-1].received_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
             </div>
         </div>
         {% endif %}
     </div>
     {% else %}
     <div>
-        <!-- Debug output -->
-        <small class="d-none debug-info">Config: {{ config }}</small>
-        {% if not config.get('active', False) %}
-            <i class="bi bi-dash-circle"></i>
-            <span class="status-text">Pasif</span>
-        {% elif not step.process.is_started %}
+        {% if not step.process.is_started %}
             <i class="bi bi-clock-history"></i>
             <span class="status-text">Süreç Başlatılmadı</span>
-        {% elif not config.get('sent_at') %}
-            <i class="bi bi-envelope"></i>
-            <span class="status-text">Gönderilmedi</span>
-        {% else %}
+        {% elif config.get('sent_at') %}
             <i class="bi bi-hourglass"></i>
             <span class="status-text">Yanıt Bekleniyor</span>
             <div class="reply-details mt-2">
@@ -1593,6 +1498,9 @@
                     <span>{{ config.get('sent_at')|format_datetime }}</span>
                 </div>
             </div>
+        {% else %}
+            <i class="bi bi-envelope"></i>
+            <span class="status-text">Gönderilmedi</span>
         {% endif %}
     </div>
     {% endif %}

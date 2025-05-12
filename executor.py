@@ -95,146 +95,127 @@ class ProcessExecutor:
         return None
 
     @staticmethod
-    def send_mail(variables):
+    def send_mail(variables_list):
         # Süreç kontrolü
         check_result = ProcessExecutor.check_process_started()
         if check_result:
             return check_result
 
-        try:
-            # COM nesnelerini başlat
-            pythoncom.CoInitialize()
-            
-            # Mail konfigürasyonunu kontrol et
-            if not variables:
-                raise Exception('Mail konfigürasyonu bulunamadı')
-            
-            # Zorunlu alanları kontrol et
-            if not variables.get('to'):
-                raise Exception('En az bir alıcı belirtilmeli')
-            if not variables.get('subject'):
-                raise Exception('Mail konusu belirtilmeli')
-            if not variables.get('body'):
-                raise Exception('Mail içeriği belirtilmeli')
-            
-            # Aktif değilse gönderme
-            if not variables.get('active', False):
-                return {
-                    'success': True,
-                    'output': 'Mail gönderimi pasif durumda',
-                    'error': None
-                }
-            
+        results = []
+        if not isinstance(variables_list, list):
+            variables_list = [variables_list]
+
+        for variables in variables_list:
             try:
-                # Outlook uygulamasına bağlan
-                outlook = win32com.client.Dispatch('Outlook.Application')
-                mail = outlook.CreateItem(0)  # 0 = Mail item
-                
-                # Alıcıları ayarla
-                if isinstance(variables['to'], list):
-                    mail.To = '; '.join(variables['to'])
-                else:
-                    mail.To = variables['to']
-                
-                # CC alıcıları ayarla (varsa)
-                if variables.get('cc'):
-                    if isinstance(variables['cc'], list):
-                        mail.CC = '; '.join(variables['cc'])
+                pythoncom.CoInitialize()
+                # Mail konfigürasyonunu kontrol et
+                if not variables:
+                    raise Exception('Mail konfigürasyonu bulunamadı')
+                if not variables.get('to'):
+                    raise Exception('En az bir alıcı belirtilmeli')
+                if not variables.get('subject'):
+                    raise Exception('Mail konusu belirtilmeli')
+                if not variables.get('body'):
+                    raise Exception('Mail içeriği belirtilmeli')
+                if not variables.get('active', False):
+                    results.append({
+                        'success': True,
+                        'output': 'Mail gönderimi pasif durumda',
+                        'error': None
+                    })
+                    continue
+                try:
+                    outlook = win32com.client.Dispatch('Outlook.Application')
+                    mail = outlook.CreateItem(0)
+                    if isinstance(variables['to'], list):
+                        mail.To = '; '.join(variables['to'])
                     else:
-                        mail.CC = variables['cc']
-                
-                # Konu ve içeriği ayarla
-                mail.Subject = variables['subject']
-                mail.Body = variables['body']
-                
-                # Maili gönder
-                mail.Send()
-                
-                return {
-                    'success': True,
-                    'output': 'Mail başarıyla gönderildi',
-                    'error': None
-                }
+                        mail.To = variables['to']
+                    if variables.get('cc'):
+                        if isinstance(variables['cc'], list):
+                            mail.CC = '; '.join(variables['cc'])
+                        else:
+                            mail.CC = variables['cc']
+                    mail.Subject = variables['subject']
+                    mail.Body = variables['body']
+                    mail.Send()
+                    results.append({
+                        'success': True,
+                        'output': 'Mail başarıyla gönderildi',
+                        'error': None
+                    })
+                except Exception as e:
+                    results.append({
+                        'success': False,
+                        'output': None,
+                        'error': f'Mail gönderilirken hata oluştu: {str(e)}'
+                    })
             except Exception as e:
-                return {
+                results.append({
                     'success': False,
                     'output': None,
-                    'error': f'Mail gönderilirken hata oluştu: {str(e)}'
-                }
-                
-        except Exception as e:
-            return {
-                'success': False,
-                'output': None,
-                'error': str(e)
-            }
-        finally:
-            # COM nesnelerini temizle
-            pythoncom.CoUninitialize()
+                    'error': str(e)
+                })
+            finally:
+                pythoncom.CoUninitialize()
+        # Eğer hepsi başarılıysa success True, biri bile başarısızsa False
+        overall_success = all(r['success'] for r in results)
+        return {
+            'success': overall_success,
+            'results': results,
+            'output': '\n'.join([r['output'] or '' for r in results]),
+            'error': '\n'.join([r['error'] or '' for r in results if r['error']]) if not overall_success else None
+        }
 
     @staticmethod
-    def execute_mail_check(start_date=None, sent_at=None):
-        # Süreç kontrolü
+    def execute_mail_check(start_date=None):
         check_result = ProcessExecutor.check_process_started()
         if check_result:
             return check_result
 
         try:
-            # COM nesnelerini başlat
             pythoncom.CoInitialize()
-            
-            # Outlook uygulamasına bağlan
             outlook = win32com.client.Dispatch('Outlook.Application')
             namespace = outlook.GetNamespace('MAPI')
             inbox = namespace.GetDefaultFolder(6)  # 6 = Gelen Kutusu
-            
-            # Son 10 maili al
+
             messages = inbox.Items
             messages.Sort('[ReceivedTime]', True)  # En yeni mailler başta olacak
-            
-            # Tarih filtresi uygula
-            filter_conditions = []
-            if start_date:
-                # Outlook'un anlayacağı formata çevir
-                filter_date = start_date.strftime('%m/%d/%Y %H:%M %p')
-                filter_conditions.append(f"[ReceivedTime] >= '{filter_date}'")
-            
-            if sent_at:
-                # Mail gönderim tarihinden sonraki maillere bak
-                sent_date = sent_at.strftime('%m/%d/%Y %H:%M %p')
-                filter_conditions.append(f"[ReceivedTime] >= '{sent_date}'")
-            
-            if filter_conditions:
-                messages = messages.Restrict(" AND ".join(filter_conditions))
-            
+
             mails = []
-            count = 0
-            
-            for message in messages:
-                if count >= 10:
-                    break
-                
-                mails.append({
-                    'subject': message.Subject,
-                    'sender': message.SenderName,
-                    'received': message.ReceivedTime.strftime('%Y-%m-%d %H:%M:%S'),
-                    'body': message.Body[:200] + '...' if len(message.Body) > 200 else message.Body
-                })
-                count += 1
-            
-            return {
-                'success': True,
-                'output': mails,
-                'error': None
-            }
+            count = messages.Count if hasattr(messages, 'Count') else 0
+            print(f"[DEBUG] messages.Count: {count}")
+
+            # Son 30 maili topla, Python'da filtrele
+            for i in range(1, min(count, 30) + 1):
+                try:
+                    message = messages.Item(i)
+                    received_time = message.ReceivedTime
+                    if start_date:
+                        # received_time offset-aware ise, tzinfo'sunu sil
+                        if hasattr(received_time, 'tzinfo') and received_time.tzinfo is not None:
+                            received_time = received_time.replace(tzinfo=None)
+                        if received_time < start_date:
+                            continue
+                    mail_info = {
+                        'subject': message.Subject,
+                        'sender': message.SenderName,
+                        'received': received_time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'body': message.Body[:200] + '...' if len(message.Body) > 200 else message.Body
+                    }
+                    print(f"[DEBUG][INBOX] Subject: {mail_info['subject']} | Sender: {mail_info['sender']} | Received: {mail_info['received']}")
+                    mails.append(mail_info)
+                    if len(mails) >= 10:
+                        break
+                except Exception as e:
+                    print(f"[ERROR][MAIL_LOOP] {str(e)}")
+                    continue
+
+            return {'success': True, 'output': mails}
         except Exception as e:
-            return {
-                'success': False,
-                'output': None,
-                'error': str(e)
-            }
+            print(f"[ERROR][MAIL_CHECK] {str(e)}")
+            return {'success': False, 'error': str(e)}
         finally:
-            # COM nesnelerini temizle
             pythoncom.CoUninitialize()
 
     @staticmethod
@@ -357,29 +338,31 @@ class ProcessExecutor:
                     'output': None,
                     'error': 'Mail değişkenleri bulunamadı'
                 }
-            
-            mail_config = None
+            mail_configs = []
             for var in variables:
                 if var.var_type == 'mail_config':
                     try:
-                        mail_config = json.loads(var.default_value) if var.default_value else {}
-                        break
+                        config = json.loads(var.default_value) if var.default_value else {}
+                        mail_configs.append(config)
                     except:
                         continue
-            
-            if not mail_config:
+            if not mail_configs:
                 return {
                     'success': False,
                     'output': None,
                     'error': 'Mail konfigürasyonu bulunamadı'
                 }
-            
-            result = ProcessExecutor.send_mail(mail_config)
-            if result['success']:
-                # Mail başarıyla gönderildiyse gönderim zamanını kaydet
-                mail_config['sent_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                var.default_value = json.dumps(mail_config)
-            
+            result = ProcessExecutor.send_mail(mail_configs)
+            # Her başarılı gönderim için sent_at güncelle
+            for idx, var in enumerate(variables):
+                if var.var_type == 'mail_config':
+                    try:
+                        config = json.loads(var.default_value) if var.default_value else {}
+                        if idx < len(result['results']) and result['results'][idx]['success']:
+                            config['sent_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            var.default_value = json.dumps(config)
+                    except:
+                        continue
             return result
         else:
             return {

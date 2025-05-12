@@ -250,19 +250,6 @@
                 localStorage.setItem('theme', newTheme);
             });
         });
-
-        // Mail durumu güncelleme butonlarına event listener ekle
-        document.querySelectorAll('.check-mail-status').forEach(button => {
-            button.addEventListener('click', async () => {
-                const stepId = button.dataset.stepId;
-                button.disabled = true;
-                try {
-                    await MailStatusManager.checkMailReplies(stepId);
-                } finally {
-                    button.disabled = false;
-                }
-            });
-        });
     </script>
     {% block scripts %}{% endblock %}
 </body>
