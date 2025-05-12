@@ -301,10 +301,18 @@
                                 </form>
                                 {% endif %}
                                 {% if process.is_started and step.type != 'main_step' %}
-                                <button type="button" class="btn btn-sm btn-primary execute-step"
-                                    data-step-id="{{ step.id }}">
-                                    <i class="bi bi-play-fill"></i>
-                                </button>
+                                <div class="btn-group">
+                                    <button type="button" class="btn btn-sm btn-outline-primary execute-step"
+                                        data-step-id="{{ step.id }}" title="Çalıştır">
+                                        <i class="bi bi-play-fill"></i>
+                                    </button>
+                                    {% if step.type == 'mail' %}
+                                    <button class="btn btn-sm btn-outline-info check-mail-status" data-step-id="{{ step.id }}"
+                                        title="Mail Durumunu Güncelle">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                    </button>
+                                    {% endif %}
+                                </div>
                                 {% endif %}
                             </div>
                         </td>
@@ -782,373 +790,772 @@
     }
 </style>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Modal ve event listener'ları başlat
-    initializeModal();
+    document.addEventListener('DOMContentLoaded', () => {
+        initializeMailCards();
+        initializeMailStatusCheck();
+        initializeProcessStartButton();
+    });
 
-    // Sayfa yüklendiğinde kaydedilen pozisyona scroll yap
-    const savedStepId = localStorage.getItem('lastViewedStepId');
-    if (savedStepId) {
-        const stepRow = document.querySelector(`tr[data-step-id="${savedStepId}"]`);
-        if (stepRow) {
-            stepRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            // Scroll pozisyonunu temizle
-            localStorage.removeItem('lastViewedStepId');
+    function initializeMailCards() {
+        // Mail kartlarını tıklanabilir yap
+        document.querySelectorAll('.mail-variable-card .card-header').forEach(header => {
+            header.style.cursor = 'pointer';
+            header.addEventListener('click', (e) => {
+                // Silme butonuna tıklandığında kartın açılmasını engelle
+                if (e.target.closest('.delete-variable')) {
+                    return;
+                }
+                const details = header.closest('.card').querySelector('.mail-details');
+                details.classList.toggle('d-none');
+            });
+        });
+
+        // Silme butonlarına event listener ekle
+        document.querySelectorAll('.delete-variable').forEach(button => {
+            button.addEventListener('click', () => {
+                const variableId = button.dataset.variableId;
+                deleteVariable(variableId);
+            });
+        });
+    }
+
+    function initializeMailStatusCheck() {
+        // Mail durumu güncelleme butonlarına event listener ekle
+        document.querySelectorAll('.check-mail-status').forEach(button => {
+            button.addEventListener('click', async () => {
+                const stepId = button.dataset.stepId;
+                button.disabled = true;
+                try {
+                    await checkMailReplies(stepId);
+                } finally {
+                    button.disabled = false;
+                }
+            });
+        });
+    }
+
+    function initializeProcessStartButton() {
+        const startProcessForm = document.querySelector('form[action*="start_process"]');
+        if (startProcessForm) {
+            startProcessForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    await fetch(startProcessForm.action, {
+                        method: 'POST'
+                    });
+                    // Süreç başlatıldıktan sonra çalıştır butonlarını aktif et
+                    document.querySelectorAll('.execute-step').forEach(button => {
+                        button.disabled = false;
+                    });
+                    // Start Process butonunu devre dışı bırak
+                    startProcessForm.querySelector('button').disabled = true;
+                } catch (error) {
+                    // Hata durumunda sessizce devam et
+                }
+            });
         }
     }
-});
 
-function initializeModal() {
-    // Debug için konsol mesajı
-    console.log('Initializing modal...');
-
-    // Modal elementini al
-    const modalElement = document.getElementById('stepDetailModal');
-    if (!modalElement) {
-        console.error('Modal element not found!');
-        return;
-    }
-
-    // Bootstrap'i kontrol et
-    if (typeof bootstrap === 'undefined') {
-        console.error('Bootstrap is not loaded!');
-        return;
-    }
-
-    // Modal nesnesini oluştur
-    const modal = new bootstrap.Modal(modalElement);
-
-    // Tüm adım satırlarına click event listener ekle
-    const rows = document.querySelectorAll('tr[data-step-id]');
-    console.log('Found rows:', rows.length);
-
-    rows.forEach(row => {
-        row.addEventListener('click', function(e) {
-            // Buton, form veya link tıklamalarını engelle
-            if (e.target.closest('button, form, a, .action-buttons')) {
+    // Adım çalıştırma işlemleri
+    document.querySelectorAll('.execute-step').forEach(button => {
+        button.addEventListener('click', async () => {
+            const stepId = button.dataset.stepId;
+            const row = button.closest('tr');
+            const stepName = row.querySelector('.step-name').textContent;
+            const stepType = row.dataset.stepType;
+            
+            if (!confirm(`"${stepName}" adımını çalıştırmak istediğinizden emin misiniz?`)) {
                 return;
             }
-
-            console.log('Row clicked, opening modal...');
-
-            // Adım verilerini al
-            const stepId = this.dataset.stepId;
-            const stepType = this.dataset.stepType;
-            const description = this.dataset.description;
-            const filePath = this.dataset.filePath;
-            const completedAt = this.dataset.completedAt;
-            const completedAtIso = this.dataset.completedAtIso;
-            const stepNo = this.querySelector('td:first-child span')?.textContent || '';
-            const stepName = this.querySelector('.step-name')?.textContent || '';
-            const responsible = this.querySelector('.step-responsible')?.textContent.trim() || '';
-            const status = this.querySelector('.status-button')?.textContent.trim() || '';
             
-            // Statü rengini belirle
-            let statusClass = 'bg-secondary';
-            let statusText = status.trim().toLowerCase();
-            if (statusText.includes('tamamlandı')) {
-                statusClass = 'bg-success';
-            } else if (statusText.includes('devam ediyor')) {
-                statusClass = 'bg-primary';
-            } else if (statusText.includes('beklemede')) {
-                statusClass = 'bg-warning';
-            }
+            button.disabled = true;
 
-            // Modal içeriğini güncelle
-            modalElement.dataset.stepId = stepId;
-            document.getElementById('modalStepNo').textContent = stepNo;
-            document.getElementById('modalStepName').textContent = stepName;
-            document.getElementById('modalStepDescriptionInput').value = description || '';
-            document.getElementById('modalStepFilePathInput').value = filePath || '';
-            document.getElementById('modalStepResponsibleInput').value = responsible;
-            
-            // Statü badge'ini güncelle
-            const statusElement = document.getElementById('modalStepStatus');
-            statusElement.textContent = status;
-            statusElement.className = `badge ${statusClass}`;
-            
-            // Tamamlanma tarihini güncelle
-            const completedAtElement = document.getElementById('modalStepCompletedAt');
-            if (completedAt) {
-                const date = new Date(completedAt);
-                const formattedDate = date.toLocaleString('tr-TR', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                });
-                completedAtElement.textContent = formattedDate;
-            } else {
-                completedAtElement.textContent = '-';
-            }
-            
-            const stepTypeElement = document.getElementById('modalStepType');
-            stepTypeElement.textContent = getStepTypeName(stepType);
-            stepTypeElement.className = `badge ${stepType}`;
-
-            // Değişkenler butonunu göster/gizle
-            const viewVariablesBtn = document.getElementById('viewVariables');
-            if (viewVariablesBtn) {
-                viewVariablesBtn.style.display = stepType === 'main_step' ? 'none' : 'block';
-            }
-
-            // Modalı göster
             try {
-                modal.show();
-                console.log('Modal shown successfully');
+                const response = await fetch(`/step/${stepId}/execute`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    if (stepType === 'mail') {
+                        // Mail gönderimi başarılı olduğunda adımı beklemede olarak işaretle
+                        updateStepStatus(stepId, 'waiting', 'Beklemede');
+
+                        // Mail durumlarını güncelle
+                        const mailStatuses = document.querySelectorAll(`tr[data-step-id="${stepId}"] .mail-status, #variables-data-${stepId} .mail-status, #variablesModal .mail-status`);
+                        mailStatuses.forEach(status => {
+                            const variableId = status.dataset.variableId;
+                            const configStr = status.dataset.config;
+                            
+                            let config;
+                            try {
+                                config = JSON.parse(configStr);
+                            } catch (e) {
+                                console.error('Config parsing error:', e);
+                                return;
+                            }
+                            
+                            if (config && config.active) {
+                                status.className = 'mail-status me-2 no-reply';
+                                status.innerHTML = `
+                                    <i class="bi bi-hourglass"></i>
+                                    <span class="status-text">Yanıt Bekleniyor</span>
+                                `;
+                            } else {
+                                status.className = 'mail-status me-2';
+                                status.innerHTML = `
+                                    <div>
+                                        <i class="bi bi-dash-circle"></i>
+                                        <span class="status-text">Pasif</span>
+                                    </div>
+                                `;
+                            }
+                        });
+
+                        // Sonuç modalını göster
+                        const resultSuccess = document.getElementById('resultSuccess');
+                        const resultError = document.getElementById('resultError');
+                        
+                        if (resultSuccess && resultError) {
+                            resultSuccess.textContent = 'Mail başarıyla gönderildi';
+                            resultSuccess.classList.remove('d-none');
+                            resultError.classList.add('d-none');
+                            
+                            const resultModal = document.getElementById('resultModal');
+                            if (resultModal) {
+                                new bootstrap.Modal(resultModal).show();
+                            }
+                        }
+                        
+                        // Mail durumlarını sunucudan kontrol et
+                        await checkMailReplies(stepId);
+                    } else {
+                        // Mail tipi değilse tamamlandı olarak işaretle
+                        updateStepStatus(stepId, 'done', 'Tamamlandı');
+                        
+                        // Sonuç modalını göster
+                        const resultSuccess = document.getElementById('resultSuccess');
+                        const resultError = document.getElementById('resultError');
+                        
+                        if (resultSuccess && resultError) {
+                            let outputMessage = result.output;
+                            if (outputMessage.includes('Çıktı dosyası:')) {
+                                const [message, filePath] = outputMessage.split('Çıktı dosyası:');
+                                outputMessage = `${message}\nÇıktı dosyası:\n${filePath.trim()}`;
+                            }
+                            resultSuccess.textContent = outputMessage;
+                            resultSuccess.classList.remove('d-none');
+                            resultError.classList.add('d-none');
+                            
+                            const resultModal = document.getElementById('resultModal');
+                            if (resultModal) {
+                                new bootstrap.Modal(resultModal).show();
+                            }
+                        }
+                    }
+                } else {
+                    const resultError = document.getElementById('resultError');
+                    const resultSuccess = document.getElementById('resultSuccess');
+                    
+                    if (resultError && resultSuccess) {
+                        resultError.textContent = `Hata: ${result.error}`;
+                        resultError.classList.remove('d-none');
+                        resultSuccess.classList.add('d-none');
+                        
+                        const resultModal = document.getElementById('resultModal');
+                        if (resultModal) {
+                            new bootstrap.Modal(resultModal).show();
+                        }
+                    }
+                }
             } catch (error) {
-                console.error('Error showing modal:', error);
+                console.error('Adım çalıştırılırken hata oluştu:', error);
+            } finally {
+                button.disabled = false;
             }
         });
     });
-}
 
-function getStepTypeName(type) {
-    const types = {
-        'main_step': 'Ana Adım',
-        'python_script': 'Python Script',
-        'sql_script': 'SQL Script',
-        'sql_procedure': 'SQL Prosedür',
-        'mail': 'Mail'
-    };
-    return types[type] || type;
-}
+    // Adım durumunu güncelleme fonksiyonu
+    function updateStepStatus(stepId, status, text) {
+        const stepRow = document.querySelector(`tr[data-step-id="${stepId}"]`);
+        const statusButton = stepRow.querySelector('.status-button');
+        if (statusButton) {
+            statusButton.className = `btn btn-sm dropdown-toggle status-button ${
+                status === 'done' ? 'btn-success' :
+                status === 'in_progress' ? 'btn-primary' :
+                status === 'waiting' ? 'btn-warning' :
+                'btn-secondary'
+            }`;
+            statusButton.textContent = text;
+        }
+    }
 
-// Otomatik kaydetme için debounce fonksiyonu
-function debounce(func, wait) {
-    let timeout;
-    return function(...args) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(this, args), wait);
-    };
-}
+    // Mail yanıt durumunu kontrol et ve adım durumunu güncelle
+    async function checkMailReplies(stepId) {
+        // Ana sayfadaki ve değişkenler modalındaki tüm mail durumlarını seç
+        const mailStatuses = document.querySelectorAll(`tr[data-step-id="${stepId}"] .mail-status, #variables-data-${stepId} .mail-status, #variablesModal .mail-status`);
+        if (!mailStatuses.length) return;
 
-// Kaydetme fonksiyonu
-async function saveField(input) {
-    const modal = document.getElementById('stepDetailModal');
-    const stepId = modal.dataset.stepId;
-    if (!stepId) {
-        console.error('Step ID not found');
+        try {
+            const response = await fetch(`/step/${stepId}/check-mail-replies`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+
+            if (result.success && result.mail_statuses) {
+                let allActiveMailsReplied = true;
+                let hasActiveMail = false;
+
+                result.mail_statuses.forEach(statusData => {
+                    // Hem ana sayfadaki hem de modaldaki durumları güncelle
+                    const statusElements = document.querySelectorAll(`.mail-status[data-variable-id="${statusData.variable_id}"]`);
+                    
+                    // Config'i parse et
+                    let config = {};
+                    statusElements.forEach(status => {
+                        try {
+                            config = JSON.parse(status.dataset.config);
+                        } catch (e) {
+                            console.error('Config parsing error:', e);
+                        }
+                    });
+                    console.log('Config:', config.active);
+                    
+                    if (config.active) {
+                        hasActiveMail = true;
+                        if (!(statusData.status === 'received' && statusData.replies.length > 0)) {
+                            allActiveMailsReplied = false;
+                        }
+                    }
+                    
+                    statusElements.forEach(status => {
+                        if (statusData.status === 'received' && statusData.replies.length > 0) {
+                            const lastReply = statusData.replies[statusData.replies.length - 1];
+                            status.className = 'mail-status me-2 has-reply';
+                            status.innerHTML = `
+                                <div>
+                                    <i class="bi bi-check-circle-fill"></i>
+                                    <span class="status-text">Yanıt Alındı</span>
+                                    <div class="reply-details mt-2">
+                                        <small class="d-block text-muted">Son yanıt:</small>
+                                        <div class="reply-info">
+                                            <strong>${lastReply.sender}</strong>
+                                            <span class="mx-1">-</span>
+                                            <span>${lastReply.received_at}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        } else if (config.active) {
+                            status.className = 'mail-status me-2 no-reply';
+                            status.innerHTML = `
+                                <div>
+                                    <i class="bi bi-hourglass"></i>
+                                    <span class="status-text">Yanıt Bekleniyor</span>
+                                </div>
+                            `;
+                        } else {
+                            status.className = 'mail-status me-2';
+                            status.innerHTML = `
+                                <div>
+                                    <i class="bi bi-dash-circle"></i>
+                                    <span class="status-text">Pasif</span>
+                                </div>
+                            `;
+                        }
+                    });
+                });
+
+                // Eğer aktif mail varsa ve tüm aktif maillere yanıt geldiyse adımı tamamlandı olarak işaretle
+                if (hasActiveMail && allActiveMailsReplied) {
+                    updateStepStatus(stepId, 'done', 'Tamamlandı');
+                }
+            }
+        } catch (error) {
+            console.error('Mail durumu kontrol edilirken hata oluştu:', error);
+        }
+    }
+
+    // Değişken silme işlemi
+    async function deleteVariable(variableId) {
+        if (!confirm('Bu değişkeni silmek istediğinizden emin misiniz?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/variable/${variableId}/delete`, {
+                method: 'POST',
+            });
+
+            if (response.redirected) {
+                window.location.href = response.url;
+            }
+        } catch (error) {
+            alert('Değişken silinirken hata oluştu');
+        }
+    }
+
+    // Değişken modalı işlemleri
+    document.querySelectorAll('.show-variables').forEach(button => {
+        button.addEventListener('click', () => {
+            const stepId = button.dataset.stepId;
+            document.getElementById('modalStepId').value = stepId;
+
+            // Değişkenleri yükle
+            const variablesContainer = document.querySelector('.variables-container');
+            const stepVariables = document.getElementById(`variables-data-${stepId}`);
+            if (stepVariables) {
+                variablesContainer.innerHTML = stepVariables.innerHTML;
+
+                // Mail durumlarını senkronize et
+                const mainPageMailStatuses = document.querySelectorAll(`tr[data-step-id="${stepId}"] .mail-status`);
+                mainPageMailStatuses.forEach(mainStatus => {
+                    const subject = mainStatus.dataset.mailSubject;
+                    const modalStatus = variablesContainer.querySelector(`.mail-status[data-mail-subject="${subject}"]`);
+                    if (modalStatus && mainStatus.innerHTML) {
+                        modalStatus.innerHTML = mainStatus.innerHTML;
+                        modalStatus.className = mainStatus.className;
+                    }
+                });
+
+                // Mail kartlarını tıklanabilir yap
+                variablesContainer.querySelectorAll('.mail-variable-card .card-header').forEach(header => {
+                    header.style.cursor = 'pointer';
+                    header.addEventListener('click', (e) => {
+                        // Silme butonuna tıklandığında kartın açılmasını engelle
+                        if (e.target.closest('.delete-variable')) {
                             return;
                         }
+                        const details = header.closest('.card').querySelector('.mail-details');
+                        details.classList.toggle('d-none');
+                    });
+                });
 
-    const fieldMap = {
-        'modalStepDescriptionInput': 'description',
-        'modalStepFilePathInput': 'file_path',
-        'modalStepResponsibleInput': 'responsible'
-    };
+                // Değişken değerlerini güncelle
+                variablesContainer.querySelectorAll('.variable-value').forEach(input => {
+                    input.addEventListener('change', async () => {
+                        const variableId = input.dataset.variableId;
+                        const value = input.type === 'checkbox' ? input.checked : input.value;
 
-    const fieldName = fieldMap[input.id];
-    if (!fieldName) return;
-
-    try {
-        showSavingIndicator('Kaydediliyor...');
-        
-        const response = await fetch(`/step/${stepId}/update`, {
+                        try {
+                            const response = await fetch(`/variable/${variableId}/update`, {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/x-www-form-urlencoded',
                                 },
-            body: `field=${fieldName}&value=${encodeURIComponent(input.value)}`
+                                body: `field=default_value&value=${encodeURIComponent(value)}`
                             });
 
                             const result = await response.json();
-        if (result.success) {
-            // Ana sayfadaki görünümü güncelle
-            const row = document.querySelector(`tr[data-step-id="${stepId}"]`);
-            if (row) {
-                if (fieldName === 'responsible') {
-                    row.querySelector('.step-responsible').textContent = input.value || 'Sorumlu ekle...';
-                }
-                // Dataset'i güncelle
-                if (fieldName === 'description') {
-                    row.dataset.description = input.value;
-                } else if (fieldName === 'file_path') {
-                    row.dataset.filePath = input.value;
-                }
-            }
-            showSavingIndicator('Kaydedildi', 'success');
-        } else {
-            showSavingIndicator('Kaydetme başarısız', 'error');
+
+                            if (!result.success) {
+                                console.error('Değişken güncellenirken hata oluştu');
+                                input.classList.add('is-invalid');
+                                setTimeout(() => input.classList.remove('is-invalid'), 2000);
+                            } else {
+                                // Başarılı güncelleme görsel geri bildirimi
+                                input.classList.add('is-valid');
+                                setTimeout(() => input.classList.remove('is-valid'), 2000);
+
+                                // Ana sayfadaki değişken değerini güncelle
+                                const originalInput = stepVariables.querySelector(`[data-variable-id="${variableId}"] .variable-value`);
+                                if (originalInput) {
+                                    if (input.type === 'checkbox') {
+                                        originalInput.checked = value;
+                                    } else {
+                                        originalInput.value = value;
+                                    }
+                                }
                             }
                         } catch (error) {
-        console.error('Error saving field:', error);
-        showSavingIndicator('Kaydetme hatası', 'error');
+                            console.error('Değişken güncellenirken hata oluştu:', error);
+                            input.classList.add('is-invalid');
+                            setTimeout(() => input.classList.remove('is-invalid'), 2000);
+                        }
+                    });
+                });
+
+                // Silme butonlarına event listener ekle
+                variablesContainer.querySelectorAll('.delete-variable').forEach(button => {
+                    button.addEventListener('click', () => {
+                        const variableId = button.dataset.variableId;
+                        deleteVariable(variableId);
+                    });
+                });
+            }
+
+            // Modalı göster
+            new bootstrap.Modal(document.getElementById('variablesModal')).show();
+        });
+    });
+
+    // Modal kapandığında event listener'ları temizle
+    document.getElementById('variablesModal').addEventListener('hidden.bs.modal', function () {
+        const variablesContainer = this.querySelector('.variables-container');
+        variablesContainer.innerHTML = '';
+    });
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // Modal ve event listener'ları başlat
+        initializeModal();
+
+        // Sayfa yüklendiğinde kaydedilen pozisyona scroll yap
+        const savedStepId = localStorage.getItem('lastViewedStepId');
+        if (savedStepId) {
+            const stepRow = document.querySelector(`tr[data-step-id="${savedStepId}"]`);
+            if (stepRow) {
+                stepRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Scroll pozisyonunu temizle
+                localStorage.removeItem('lastViewedStepId');
+            }
+        }
+    });
+
+    function initializeModal() {
+        // Debug için konsol mesajı
+        console.log('Initializing modal...');
+
+        // Modal elementini al
+        const modalElement = document.getElementById('stepDetailModal');
+        if (!modalElement) {
+            console.error('Modal element not found!');
+            return;
+        }
+
+        // Bootstrap'i kontrol et
+        if (typeof bootstrap === 'undefined') {
+            console.error('Bootstrap is not loaded!');
+            return;
+        }
+
+        // Modal nesnesini oluştur
+        const modal = new bootstrap.Modal(modalElement);
+
+        // Tüm adım satırlarına click event listener ekle
+        const rows = document.querySelectorAll('tr[data-step-id]');
+        console.log('Found rows:', rows.length);
+
+        rows.forEach(row => {
+            row.addEventListener('click', function(e) {
+                // Buton, form veya link tıklamalarını engelle
+                if (e.target.closest('button, form, a, .action-buttons')) {
+                    return;
+                }
+
+                console.log('Row clicked, opening modal...');
+
+                // Adım verilerini al
+                const stepId = this.dataset.stepId;
+                const stepType = this.dataset.stepType;
+                const description = this.dataset.description;
+                const filePath = this.dataset.filePath;
+                const completedAt = this.dataset.completedAt;
+                const completedAtIso = this.dataset.completedAtIso;
+                const stepNo = this.querySelector('td:first-child span')?.textContent || '';
+                const stepName = this.querySelector('.step-name')?.textContent || '';
+                const responsible = this.querySelector('.step-responsible')?.textContent.trim() || '';
+                const status = this.querySelector('.status-button')?.textContent.trim() || '';
+                
+                // Statü rengini belirle
+                let statusClass = 'bg-secondary';
+                let statusText = status.trim().toLowerCase();
+                if (statusText.includes('tamamlandı')) {
+                    statusClass = 'bg-success';
+                } else if (statusText.includes('devam ediyor')) {
+                    statusClass = 'bg-primary';
+                } else if (statusText.includes('beklemede')) {
+                    statusClass = 'bg-warning';
+                }
+
+                // Modal içeriğini güncelle
+                modalElement.dataset.stepId = stepId;
+                document.getElementById('modalStepNo').textContent = stepNo;
+                document.getElementById('modalStepName').textContent = stepName;
+                document.getElementById('modalStepDescriptionInput').value = description || '';
+                document.getElementById('modalStepFilePathInput').value = filePath || '';
+                document.getElementById('modalStepResponsibleInput').value = responsible;
+                
+                // Statü badge'ini güncelle
+                const statusElement = document.getElementById('modalStepStatus');
+                statusElement.textContent = status;
+                statusElement.className = `badge ${statusClass}`;
+                
+                // Tamamlanma tarihini güncelle
+                const completedAtElement = document.getElementById('modalStepCompletedAt');
+                if (completedAt) {
+                    const date = new Date(completedAt);
+                    const formattedDate = date.toLocaleString('tr-TR', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                    completedAtElement.textContent = formattedDate;
+                } else {
+                    completedAtElement.textContent = '-';
+                }
+                
+                const stepTypeElement = document.getElementById('modalStepType');
+                stepTypeElement.textContent = getStepTypeName(stepType);
+                stepTypeElement.className = `badge ${stepType}`;
+
+                // Değişkenler butonunu göster/gizle
+                const viewVariablesBtn = document.getElementById('viewVariables');
+                if (viewVariablesBtn) {
+                    viewVariablesBtn.style.display = stepType === 'main_step' ? 'none' : 'block';
+                }
+
+                // Modalı göster
+                try {
+                    modal.show();
+                    console.log('Modal shown successfully');
+                } catch (error) {
+                    console.error('Error showing modal:', error);
+                }
+            });
+        });
     }
-}
 
-// Kaydetme göstergesi fonksiyonu
-function showSavingIndicator(message, type = 'info') {
-    let indicator = document.querySelector('.saving-indicator');
-    if (!indicator) {
-        indicator = document.createElement('div');
-        indicator.className = 'saving-indicator';
-        document.body.appendChild(indicator);
+    function getStepTypeName(type) {
+        const types = {
+            'main_step': 'Ana Adım',
+            'python_script': 'Python Script',
+            'sql_script': 'SQL Script',
+            'sql_procedure': 'SQL Prosedür',
+            'mail': 'Mail'
+        };
+        return types[type] || type;
     }
 
-    indicator.textContent = message;
-    indicator.className = `saving-indicator show bg-${type === 'success' ? 'success' : type === 'error' ? 'danger' : 'info'}`;
+    // Otomatik kaydetme için debounce fonksiyonu
+    function debounce(func, wait) {
+        let timeout;
+        return function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
+        };
+    }
 
-    setTimeout(() => {
-        indicator.classList.remove('show');
-    }, 2000);
-}
-
-// Input değişikliklerini dinle
-const debouncedSave = debounce(saveField, 500);
-document.querySelectorAll('.detail-input').forEach(input => {
-    input.addEventListener('input', () => debouncedSave(input));
-    });
-
-// Status form submit işleminden önce pozisyonu kaydet
-document.querySelectorAll('.dropdown-menu form').forEach(form => {
-    form.addEventListener('submit', function() {
-        const stepRow = this.closest('tr');
-        if (stepRow) {
-            const stepId = stepRow.dataset.stepId;
-            localStorage.setItem('lastViewedStepId', stepId);
-        }
-    });
-    });
-
-// Filtreleme fonksiyonları
-function applyFilters() {
-    const stepNameFilter = document.getElementById('stepNameFilter').value.toLowerCase();
-    const responsibleFilter = document.getElementById('responsibleFilter').value.toLowerCase();
-    const statusFilter = document.getElementById('statusFilter').value;
-    const typeFilter = document.getElementById('typeFilter').value;
-    const startDate = document.getElementById('startDateFilter').value;
-    const endDate = document.getElementById('endDateFilter').value;
-
-    const rows = document.querySelectorAll('tbody tr');
-    
-    rows.forEach(row => {
-        const stepName = row.dataset.stepName.toLowerCase();
-        const responsible = row.dataset.responsible.toLowerCase();
-        const status = row.dataset.status;
-        const type = row.dataset.stepType;
-        const completedAtIso = row.dataset.completedAtIso;
-
-        const matchesStepName = stepName.includes(stepNameFilter);
-        const matchesResponsible = responsible.includes(responsibleFilter);
-        const matchesStatus = !statusFilter || status === statusFilter;
-        const matchesType = !typeFilter || type === typeFilter;
-        let matchesDate = true;
-        if (startDate && completedAtIso) {
-            matchesDate = completedAtIso >= startDate;
-        }
-        if (endDate && completedAtIso) {
-            matchesDate = matchesDate && completedAtIso <= endDate;
-        }
-        if ((startDate || endDate) && !completedAtIso) {
-            matchesDate = false;
+    // Kaydetme fonksiyonu
+    async function saveField(input) {
+        const modal = document.getElementById('stepDetailModal');
+        const stepId = modal.dataset.stepId;
+        if (!stepId) {
+            console.error('Step ID not found');
+            return;
         }
 
-        // Tüm filtreler eşleşiyorsa satırı göster, değilse gizle
-        if (matchesStepName && matchesResponsible && matchesStatus && matchesType && matchesDate) {
-            row.style.display = '';
-        } else {
-            row.style.display = 'none';
+        const fieldMap = {
+            'modalStepDescriptionInput': 'description',
+            'modalStepFilePathInput': 'file_path',
+            'modalStepResponsibleInput': 'responsible'
+        };
+
+        const fieldName = fieldMap[input.id];
+        if (!fieldName) return;
+
+        try {
+            showSavingIndicator('Kaydediliyor...');
+            
+            const response = await fetch(`/step/${stepId}/update`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `field=${fieldName}&value=${encodeURIComponent(input.value)}`
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                // Ana sayfadaki görünümü güncelle
+                const row = document.querySelector(`tr[data-step-id="${stepId}"]`);
+                if (row) {
+                    if (fieldName === 'responsible') {
+                        row.querySelector('.step-responsible').textContent = input.value || 'Sorumlu ekle...';
+                    }
+                    // Dataset'i güncelle
+                    if (fieldName === 'description') {
+                        row.dataset.description = input.value;
+                    } else if (fieldName === 'file_path') {
+                        row.dataset.filePath = input.value;
+                    }
+                }
+                showSavingIndicator('Kaydedildi', 'success');
+            } else {
+                showSavingIndicator('Kaydetme başarısız', 'error');
+            }
+        } catch (error) {
+            console.error('Error saving field:', error);
+            showSavingIndicator('Kaydetme hatası', 'error');
         }
-    });
-}
+    }
 
-// Filtre input'larına event listener'lar ekle
-document.getElementById('stepNameFilter').addEventListener('input', applyFilters);
-document.getElementById('responsibleFilter').addEventListener('input', applyFilters);
-document.getElementById('statusFilter').addEventListener('change', applyFilters);
-document.getElementById('typeFilter').addEventListener('change', applyFilters);
-document.getElementById('startDateFilter').addEventListener('change', applyFilters);
-document.getElementById('endDateFilter').addEventListener('change', applyFilters);
+    // Kaydetme göstergesi fonksiyonu
+    function showSavingIndicator(message, type = 'info') {
+        let indicator = document.querySelector('.saving-indicator');
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.className = 'saving-indicator';
+            document.body.appendChild(indicator);
+        }
 
-// İstatistikleri hesapla ve göster
-function updateStatistics() {
-    const rows = Array.from(document.querySelectorAll('tbody tr'));
-    const total = rows.length;
-    let completed = 0;
-    const responsibleMap = {};
-    const typeMap = {};
-    rows.forEach(row => {
-        const status = row.dataset.status;
-        const responsible = row.dataset.responsible || 'Atanmamış';
-        const type = row.dataset.stepType;
-        if (status === 'done') completed++;
-        // Sorumlu
-        if (!responsibleMap[responsible]) responsibleMap[responsible] = 0;
-        if (status === 'done') responsibleMap[responsible]++;
-        // Tip
-        if (!typeMap[type]) typeMap[type] = 0;
-        typeMap[type]++;
+        indicator.textContent = message;
+        indicator.className = `saving-indicator show bg-${type === 'success' ? 'success' : type === 'error' ? 'danger' : 'info'}`;
+
+        setTimeout(() => {
+            indicator.classList.remove('show');
+        }, 2000);
+    }
+
+    // Input değişikliklerini dinle
+    const debouncedSave = debounce(saveField, 500);
+    document.querySelectorAll('.detail-input').forEach(input => {
+        input.addEventListener('input', () => debouncedSave(input));
     });
-    document.getElementById('statTotalSteps').textContent = total;
-    document.getElementById('statCompletedSteps').textContent = completed;
-    document.getElementById('statCompletionRate').textContent = total ? `%${Math.round((completed/total)*100)}` : '%0';
-    // Sorumlu listesi
-    const responsibleList = document.getElementById('statResponsibleList');
-    responsibleList.innerHTML = '';
-    Object.entries(responsibleMap).forEach(([name, count]) => {
-        const li = document.createElement('li');
-        li.textContent = `${name}: ${count}`;
-        responsibleList.appendChild(li);
+
+    // Status form submit işleminden önce pozisyonu kaydet
+    document.querySelectorAll('.dropdown-menu form').forEach(form => {
+        form.addEventListener('submit', function() {
+            const stepRow = this.closest('tr');
+            if (stepRow) {
+                const stepId = stepRow.dataset.stepId;
+                localStorage.setItem('lastViewedStepId', stepId);
+            }
+        });
     });
-    // Tip listesi
-    const typeList = document.getElementById('statTypeList');
-    typeList.innerHTML = '';
-    Object.entries(typeMap).forEach(([type, count]) => {
-        const li = document.createElement('li');
-        li.textContent = `${type}: ${count}`;
-        typeList.appendChild(li);
+
+    // Filtreleme fonksiyonları
+    function applyFilters() {
+        const stepNameFilter = document.getElementById('stepNameFilter').value.toLowerCase();
+        const responsibleFilter = document.getElementById('responsibleFilter').value.toLowerCase();
+        const statusFilter = document.getElementById('statusFilter').value;
+        const typeFilter = document.getElementById('typeFilter').value;
+        const startDate = document.getElementById('startDateFilter').value;
+        const endDate = document.getElementById('endDateFilter').value;
+
+        const rows = document.querySelectorAll('tbody tr');
+        
+        rows.forEach(row => {
+            const stepName = row.dataset.stepName.toLowerCase();
+            const responsible = row.dataset.responsible.toLowerCase();
+            const status = row.dataset.status;
+            const type = row.dataset.stepType;
+            const completedAtIso = row.dataset.completedAtIso;
+
+            const matchesStepName = stepName.includes(stepNameFilter);
+            const matchesResponsible = responsible.includes(responsibleFilter);
+            const matchesStatus = !statusFilter || status === statusFilter;
+            const matchesType = !typeFilter || type === typeFilter;
+            let matchesDate = true;
+            if (startDate && completedAtIso) {
+                matchesDate = completedAtIso >= startDate;
+            }
+            if (endDate && completedAtIso) {
+                matchesDate = matchesDate && completedAtIso <= endDate;
+            }
+            if ((startDate || endDate) && !completedAtIso) {
+                matchesDate = false;
+            }
+
+            // Tüm filtreler eşleşiyorsa satırı göster, değilse gizle
+            if (matchesStepName && matchesResponsible && matchesStatus && matchesType && matchesDate) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    }
+
+    // Filtre input'larına event listener'lar ekle
+    document.getElementById('stepNameFilter').addEventListener('input', applyFilters);
+    document.getElementById('responsibleFilter').addEventListener('input', applyFilters);
+    document.getElementById('statusFilter').addEventListener('change', applyFilters);
+    document.getElementById('typeFilter').addEventListener('change', applyFilters);
+    document.getElementById('startDateFilter').addEventListener('change', applyFilters);
+    document.getElementById('endDateFilter').addEventListener('change', applyFilters);
+
+    // İstatistikleri hesapla ve göster
+    function updateStatistics() {
+        const rows = Array.from(document.querySelectorAll('tbody tr'));
+        const total = rows.length;
+        let completed = 0;
+        const responsibleMap = {};
+        const typeMap = {};
+        rows.forEach(row => {
+            const status = row.dataset.status;
+            const responsible = row.dataset.responsible || 'Atanmamış';
+            const type = row.dataset.stepType;
+            if (status === 'done') completed++;
+            // Sorumlu
+            if (!responsibleMap[responsible]) responsibleMap[responsible] = 0;
+            if (status === 'done') responsibleMap[responsible]++;
+            // Tip
+            if (!typeMap[type]) typeMap[type] = 0;
+            typeMap[type]++;
+        });
+        document.getElementById('statTotalSteps').textContent = total;
+        document.getElementById('statCompletedSteps').textContent = completed;
+        document.getElementById('statCompletionRate').textContent = total ? `%${Math.round((completed/total)*100)}` : '%0';
+        // Sorumlu listesi
+        const responsibleList = document.getElementById('statResponsibleList');
+        responsibleList.innerHTML = '';
+        Object.entries(responsibleMap).forEach(([name, count]) => {
+            const li = document.createElement('li');
+            li.textContent = `${name}: ${count}`;
+            responsibleList.appendChild(li);
+        });
+        // Tip listesi
+        const typeList = document.getElementById('statTypeList');
+        typeList.innerHTML = '';
+        Object.entries(typeMap).forEach(([type, count]) => {
+            const li = document.createElement('li');
+            li.textContent = `${type}: ${count}`;
+            typeList.appendChild(li);
+        });
+    }
+    // Tablo filtrelendiğinde de güncelle
+    const filterInputs = [
+        'stepNameFilter','responsibleFilter','statusFilter','typeFilter','startDateFilter','endDateFilter'
+    ];
+    filterInputs.forEach(id => {
+        document.getElementById(id).addEventListener('input', updateStatistics);
+        document.getElementById(id).addEventListener('change', updateStatistics);
     });
-}
-// Tablo filtrelendiğinde de güncelle
-const filterInputs = [
-    'stepNameFilter','responsibleFilter','statusFilter','typeFilter','startDateFilter','endDateFilter'
-];
-filterInputs.forEach(id => {
-    document.getElementById(id).addEventListener('input', updateStatistics);
-    document.getElementById(id).addEventListener('change', updateStatistics);
-});
-document.addEventListener('DOMContentLoaded', updateStatistics);
-// CSV export
-function tableToCSV() {
-    const rows = Array.from(document.querySelectorAll('table tbody tr')).filter(row => row.style.display !== 'none');
-    const headers = Array.from(document.querySelectorAll('table thead th')).map(th => th.textContent.trim());
-    let csv = headers.join(',') + '\n';
-    rows.forEach(row => {
-        const cells = Array.from(row.querySelectorAll('td')).map(td => '"'+td.textContent.trim().replace(/"/g,'""')+'"');
-        csv += cells.join(',') + '\n';
+    document.addEventListener('DOMContentLoaded', updateStatistics);
+    // CSV export
+    function tableToCSV() {
+        const rows = Array.from(document.querySelectorAll('table tbody tr')).filter(row => row.style.display !== 'none');
+        const headers = Array.from(document.querySelectorAll('table thead th')).map(th => th.textContent.trim());
+        let csv = headers.join(',') + '\n';
+        rows.forEach(row => {
+            const cells = Array.from(row.querySelectorAll('td')).map(td => '"'+td.textContent.trim().replace(/"/g,'""')+'"');
+            csv += cells.join(',') + '\n';
+        });
+        return csv;
+    }
+    document.getElementById('exportCsvBtn').addEventListener('click', function() {
+        const csv = tableToCSV();
+        const blob = new Blob([csv], {type: 'text/csv'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'adimlar.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     });
-    return csv;
-}
-document.getElementById('exportCsvBtn').addEventListener('click', function() {
-    const csv = tableToCSV();
-    const blob = new Blob([csv], {type: 'text/csv'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'adimlar.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-});
 </script>
 {% endblock %}
-
 {% macro render_mail_status(var, config, step) %}
-{% set config_json = config|tojson|safe %}
-<div class="mail-status me-2 {% if var.mail_status == 'received' and config.get('active', False) %}has-reply text-success{% elif config.get('active', False) %}no-reply text-warning{% endif %}" 
+<div class="mail-status me-2 {% if var.mail_status == 'received' %}has-reply{% else %}no-reply{% endif %}" 
     data-mail-subject="{{ config.get('subject', '') }}"
     data-variable-id="{{ var.id }}"
-    data-config='{{ config_json }}'>
-    {% if not config.get('active', False) %}
-    <div>
-        <i class="bi bi-dash-circle"></i>
-        <span class="status-text">Pasif</span>
-    </div>
-    {% elif var.mail_status == 'received' and get_mail_replies(var.id) %}
+    data-config="{{ config }}">
+    {% if var.mail_status == 'received' and get_mail_replies(var.id) %}
     <div>
         <i class="bi bi-check-circle-fill"></i>
         <span class="status-text">Yanıt Alındı</span>
@@ -1159,17 +1566,25 @@ document.getElementById('exportCsvBtn').addEventListener('click', function() {
             <div class="reply-info">
                 <strong>{{ replies[-1].sender }}</strong>
                 <span class="mx-1">-</span>
-                <span>{{ replies[-1].received_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+                <span>{{ replies[-1].received_at }}</span>
             </div>
         </div>
         {% endif %}
     </div>
     {% else %}
     <div>
-        {% if not step.process.is_started %}
+        <!-- Debug output -->
+        <small class="d-none debug-info">Config: {{ config }}</small>
+        {% if not config.get('active', False) %}
+            <i class="bi bi-dash-circle"></i>
+            <span class="status-text">Pasif</span>
+        {% elif not step.process.is_started %}
             <i class="bi bi-clock-history"></i>
             <span class="status-text">Süreç Başlatılmadı</span>
-        {% elif config.get('sent_at') %}
+        {% elif not config.get('sent_at') %}
+            <i class="bi bi-envelope"></i>
+            <span class="status-text">Gönderilmedi</span>
+        {% else %}
             <i class="bi bi-hourglass"></i>
             <span class="status-text">Yanıt Bekleniyor</span>
             <div class="reply-details mt-2">
@@ -1178,11 +1593,10 @@ document.getElementById('exportCsvBtn').addEventListener('click', function() {
                     <span>{{ config.get('sent_at')|format_datetime }}</span>
                 </div>
             </div>
-        {% else %}
-            <i class="bi bi-envelope"></i>
-            <span class="status-text">Gönderilmedi</span>
         {% endif %}
     </div>
     {% endif %}
 </div>
 {% endmacro %}
+</body>
+</html>

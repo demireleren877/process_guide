@@ -7,6 +7,9 @@ from datetime import datetime
 import win32com.client
 import pythoncom
 import cx_Oracle
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ProcessExecutor:
     _instance = None
@@ -49,18 +52,15 @@ class ProcessExecutor:
     @classmethod
     def _check_db_process_status(cls):
         """Veritabanından süreç durumunu kontrol et"""
+        if not cls._db_path:
+            return False
+        
         try:
-            # Oracle bağlantısı oluştur
-            conn = ProcessExecutor.get_oracle_connection()
+            conn = sqlite3.connect(cls._db_path)
             cursor = conn.cursor()
-            
-            # Süreç durumunu kontrol et
             cursor.execute("SELECT COUNT(*) FROM process WHERE is_started = 1")
             count = cursor.fetchone()[0]
-            
-            cursor.close()
             conn.close()
-            
             return count > 0
         except Exception:
             return False
@@ -95,41 +95,61 @@ class ProcessExecutor:
         return None
 
     @staticmethod
-    def send_mail(variables):        
+    def send_mail(variables):
+        # Süreç kontrolü
         check_result = ProcessExecutor.check_process_started()
         if check_result:
             return check_result
-        try:            
-            pythoncom.CoInitialize()      
+
+        try:
+            # COM nesnelerini başlat
+            pythoncom.CoInitialize()
+            
+            # Mail konfigürasyonunu kontrol et
             if not variables:
-                raise Exception('Mail konfigürasyonu bulunamadı')   
+                raise Exception('Mail konfigürasyonu bulunamadı')
+            
+            # Zorunlu alanları kontrol et
             if not variables.get('to'):
                 raise Exception('En az bir alıcı belirtilmeli')
             if not variables.get('subject'):
                 raise Exception('Mail konusu belirtilmeli')
             if not variables.get('body'):
-                raise Exception('Mail içeriği belirtilmeli')       
+                raise Exception('Mail içeriği belirtilmeli')
+            
+            # Aktif değilse gönderme
             if not variables.get('active', False):
                 return {
                     'success': True,
                     'output': 'Mail gönderimi pasif durumda',
                     'error': None
-                }            
-            try:                
+                }
+            
+            try:
+                # Outlook uygulamasına bağlan
                 outlook = win32com.client.Dispatch('Outlook.Application')
-                mail = outlook.CreateItem(0)                  
+                mail = outlook.CreateItem(0)  # 0 = Mail item
+                
+                # Alıcıları ayarla
                 if isinstance(variables['to'], list):
                     mail.To = '; '.join(variables['to'])
                 else:
-                    mail.To = variables['to']     
+                    mail.To = variables['to']
+                
+                # CC alıcıları ayarla (varsa)
                 if variables.get('cc'):
                     if isinstance(variables['cc'], list):
                         mail.CC = '; '.join(variables['cc'])
                     else:
-                        mail.CC = variables['cc']           
+                        mail.CC = variables['cc']
+                
+                # Konu ve içeriği ayarla
                 mail.Subject = variables['subject']
-                mail.Body = variables['body']      
-                mail.Send()                
+                mail.Body = variables['body']
+                
+                # Maili gönder
+                mail.Send()
+                
                 return {
                     'success': True,
                     'output': 'Mail başarıyla gönderildi',
@@ -140,50 +160,68 @@ class ProcessExecutor:
                     'success': False,
                     'output': None,
                     'error': f'Mail gönderilirken hata oluştu: {str(e)}'
-                }                
+                }
+                
         except Exception as e:
             return {
                 'success': False,
                 'output': None,
                 'error': str(e)
             }
-        finally:            
+        finally:
+            # COM nesnelerini temizle
             pythoncom.CoUninitialize()
 
     @staticmethod
-    def execute_mail_check(start_date=None, sent_at=None):        
+    def execute_mail_check(start_date=None, sent_at=None):
+        # Süreç kontrolü
         check_result = ProcessExecutor.check_process_started()
         if check_result:
             return check_result
-        try:            
-            pythoncom.CoInitialize()           
+
+        try:
+            # COM nesnelerini başlat
+            pythoncom.CoInitialize()
+            
+            # Outlook uygulamasına bağlan
             outlook = win32com.client.Dispatch('Outlook.Application')
             namespace = outlook.GetNamespace('MAPI')
-            inbox = namespace.GetDefaultFolder(6)  
+            inbox = namespace.GetDefaultFolder(6)  # 6 = Gelen Kutusu
+            
+            # Son 10 maili al
             messages = inbox.Items
-            messages.Sort('[ReceivedTime]', True)         
+            messages.Sort('[ReceivedTime]', True)  # En yeni mailler başta olacak
+            
+            # Tarih filtresi uygula
             filter_conditions = []
-            if start_date:                
+            if start_date:
+                # Outlook'un anlayacağı formata çevir
                 filter_date = start_date.strftime('%m/%d/%Y %H:%M %p')
-                filter_conditions.append(f"[ReceivedTime] >= '{filter_date}'")            
-            if sent_at:                
+                filter_conditions.append(f"[ReceivedTime] >= '{filter_date}'")
+            
+            if sent_at:
+                # Mail gönderim tarihinden sonraki maillere bak
                 sent_date = sent_at.strftime('%m/%d/%Y %H:%M %p')
-                filter_conditions.append(f"[ReceivedTime] >= '{sent_date}'")            
+                filter_conditions.append(f"[ReceivedTime] >= '{sent_date}'")
+            
             if filter_conditions:
-                messages = messages.Restrict(" AND ".join(filter_conditions))            
+                messages = messages.Restrict(" AND ".join(filter_conditions))
+            
             mails = []
-            count = 0            
-
+            count = 0
+            
             for message in messages:
                 if count >= 10:
-                    break                
+                    break
+                
                 mails.append({
                     'subject': message.Subject,
                     'sender': message.SenderName,
                     'received': message.ReceivedTime.strftime('%Y-%m-%d %H:%M:%S'),
                     'body': message.Body[:200] + '...' if len(message.Body) > 200 else message.Body
                 })
-                count += 1            
+                count += 1
+            
             return {
                 'success': True,
                 'output': mails,
@@ -195,7 +233,8 @@ class ProcessExecutor:
                 'output': None,
                 'error': str(e)
             }
-        finally:            
+        finally:
+            # COM nesnelerini temizle
             pythoncom.CoUninitialize()
 
     @staticmethod
