@@ -31,7 +31,7 @@ class ProcessBot:
             print("Chrome driver başlatma hatası: {}".format(str(e)))
             sys.exit(1)
         
-    def login(self, url="https://process-guide.vercel.app/"):
+    def login(self, url="http://127.0.0.1:5001/"):
         """Web arayüzüne giriş yap"""
         try:
             self.driver.get(url)
@@ -192,7 +192,7 @@ class ProcessBot:
             print("Excel dosyası okunuyor: {}".format(self.excel_path))
             try:
                 # Header olmadan oku ve ilk satırı atla
-                df = pd.read_excel("ProcessGuide_2025.xlsx", sheet_name="2025", engine='openpyxl', header=None, skiprows=1)
+                df = pd.read_excel("ProcessGuide_2503.xlsx",  engine='openpyxl', header=None, skiprows=1)
                 print("Excel dosyası başarıyla okundu")
                 print("Toplam {} satır bulundu".format(len(df)))
                 

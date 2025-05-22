@@ -571,7 +571,7 @@ window.addEventListener('load', function() {
             document.getElementById('responsible').textContent = 
                 info.event.extendedProps.responsible || 'Atanmamış';
             document.getElementById('completionDate').textContent = 
-                info.event.extendedProps.completionDate;
+                info.event.extendedProps.completionDate || '-';
             
             eventModal.show();
         },

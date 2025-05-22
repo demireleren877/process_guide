@@ -1191,16 +1191,27 @@
                 // Tamamlanma tarihini güncelle
                 const completedAtElement = document.getElementById('modalStepCompletedAt');
                 if (completedAt) {
-                    const date = new Date(completedAt);
-                    const formattedDate = date.toLocaleString('tr-TR', {
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit'
-                    });
-                    completedAtElement.textContent = formattedDate;
+                    try {
+                        // Tarih string'ini parse et (DD.MM.YYYY HH:mm formatı)
+                        const [datePart, timePart] = completedAt.split(' ');
+                        const [day, month, year] = datePart.split('.');
+                        const [hour, minute] = timePart.split(':');
+                        
+                        // Yeni Date objesi oluştur (ay 0-tabanlı olduğu için -1)
+                        const date = new Date(year, month - 1, day, hour, minute);
+                        
+                        // Tarihi formatla
+                        completedAtElement.textContent = date.toLocaleString('tr-TR', {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        });
+                    } catch (e) {
+                        console.error('Date parsing error:', e);
+                        completedAtElement.textContent = completedAt;
+                    }
                 } else {
                     completedAtElement.textContent = '-';
                 }
