@@ -9,24 +9,41 @@
                     <h4 class="mb-0">Excel'den Oracle'a Veri Aktarımı</h4>
                 </div>
                 <div class="card-body">
-                    <form id="excelImportForm" enctype="multipart/form-data">
+                    <form id="excelImportForm" enctype="multipart/form-data" novalidate>
                         <div class="mb-3">
                             <label for="excelFile" class="form-label">Excel Dosyası</label>
-                            <input type="file" class="form-control" id="excelFile" accept=".xlsx,.xls" required>
+                            <input type="file" class="form-control" id="excelFile" accept=".xlsx,.xls">
                         </div>
                         
                         <div class="mb-3">
                             <label for="sheetSelect" class="form-label">Excel Sayfası</label>
-                            <select class="form-select" id="sheetSelect" required disabled>
+                            <select class="form-select" id="sheetSelect" disabled>
                                 <option value="">Önce Excel dosyası seçin</option>
                             </select>
                         </div>
                         
                         <div class="mb-3">
-                            <label for="tableSelect" class="form-label">Hedef Oracle Tablosu</label>
-                            <select class="form-select" id="tableSelect" required>
-                                <option value="">Yükleniyor...</option>
-                            </select>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="createNewTable">
+                                <label class="form-check-label" for="createNewTable">
+                                    Yeni Tablo Oluştur
+                                </label>
+                            </div>
+                            
+                            <div id="existingTableSection">
+                                <label for="tableSelect" class="form-label">Hedef Oracle Tablosu</label>
+                                <select class="form-select" id="tableSelect">
+                                    <option value="">Yükleniyor...</option>
+                                </select>
+                            </div>
+                            
+                            <div id="newTableSection" style="display: none;">
+                                <label for="newTableName" class="form-label">Yeni Tablo Adı</label>
+                                <input type="text" class="form-control" id="newTableName" placeholder="Yeni tablo adını girin">
+                                <small class="form-text text-muted">
+                                    Tablo adı sadece harf, rakam ve alt çizgi içerebilir. Boşluk ve özel karakter kullanılamaz.
+                                </small>
+                            </div>
                         </div>
                         
                         <div class="alert alert-info" id="previewInfo" style="display: none;">
@@ -54,11 +71,31 @@ document.addEventListener('DOMContentLoaded', function() {
     const fileInput = document.getElementById('excelFile');
     const sheetSelect = document.getElementById('sheetSelect');
     const tableSelect = document.getElementById('tableSelect');
+    const createNewTableCheckbox = document.getElementById('createNewTable');
+    const existingTableSection = document.getElementById('existingTableSection');
+    const newTableSection = document.getElementById('newTableSection');
+    const newTableNameInput = document.getElementById('newTableName');
     const previewInfo = document.getElementById('previewInfo');
     const previewContent = document.getElementById('previewContent');
     const errorAlert = document.getElementById('errorAlert');
     const successAlert = document.getElementById('successAlert');
     const importButton = document.getElementById('importButton');
+    
+    // Yeni tablo oluşturma seçeneği değiştiğinde
+    createNewTableCheckbox.addEventListener('change', function() {
+        if (this.checked) {
+            existingTableSection.style.display = 'none';
+            newTableSection.style.display = 'block';
+            tableSelect.disabled = true;
+            newTableNameInput.disabled = false;
+        } else {
+            existingTableSection.style.display = 'block';
+            newTableSection.style.display = 'none';
+            tableSelect.disabled = false;
+            newTableNameInput.disabled = true;
+        }
+        checkImportButtonState();
+    });
     
     // Excel dosyası seçildiğinde
     fileInput.addEventListener('change', function() {
@@ -90,12 +127,16 @@ document.addEventListener('DOMContentLoaded', function() {
     // Sayfa veya tablo seçimi değiştiğinde buton durumunu kontrol et
     sheetSelect.addEventListener('change', checkImportButtonState);
     tableSelect.addEventListener('change', checkImportButtonState);
+    newTableNameInput.addEventListener('input', checkImportButtonState);
 
     // İçe aktar butonunun durumunu kontrol eden fonksiyon
     function checkImportButtonState() {
         const hasFile = fileInput.files.length > 0;
         const hasSheet = sheetSelect.value !== '';
-        const hasTable = tableSelect.value !== '';
+        const isNewTable = createNewTableCheckbox.checked;
+        const hasTable = isNewTable ? 
+            newTableNameInput.value.trim() !== '' : 
+            tableSelect.value !== '';
         
         importButton.disabled = !(hasFile && hasSheet && hasTable);
     }
@@ -120,15 +161,30 @@ document.addEventListener('DOMContentLoaded', function() {
     form.addEventListener('submit', function(e) {
         e.preventDefault();
         
-        if (!fileInput.files.length || !sheetSelect.value || !tableSelect.value) {
-            showError('Lütfen tüm alanları doldurun');
+        if (!fileInput.files.length || !sheetSelect.value) {
+            showError('Lütfen Excel dosyası ve sayfa seçin');
             return;
         }
         
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         formData.append('sheet_name', sheetSelect.value);
-        formData.append('table_name', tableSelect.value);
+        
+        if (createNewTableCheckbox.checked) {
+            const newTableName = newTableNameInput.value.trim();
+            if (!newTableName) {
+                showError('Lütfen yeni tablo adını girin');
+                return;
+            }
+            formData.append('create_new_table', 'true');
+            formData.append('new_table_name', newTableName);
+        } else {
+            if (!tableSelect.value) {
+                showError('Lütfen hedef tabloyu seçin');
+                return;
+            }
+            formData.append('table_name', tableSelect.value);
+        }
         
         importButton.disabled = true;
         importButton.querySelector('.spinner-border').style.display = 'inline-block';
@@ -140,10 +196,24 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showSuccess(data.message);
-                form.reset();
+                let message = data.message;
+                if (data.column_mapping) {
+                    message += '<br><br>Sütun Eşleştirmeleri:<br>';
+                    for (const [excel, oracle] of Object.entries(data.column_mapping)) {
+                        message += `${excel} → ${oracle}<br>`;
+                    }
+                }
+                showSuccess(message);
+                // Form alanlarını sıfırla
+                fileInput.value = '';
+                sheetSelect.innerHTML = '<option value="">Önce Excel dosyası seçin</option>';
                 sheetSelect.disabled = true;
+                newTableNameInput.value = '';
                 importButton.disabled = true;
+                // Başarı mesajını 5 saniye sonra gizle
+                setTimeout(() => {
+                    successAlert.style.display = 'none';
+                }, 5000);
             } else {
                 showError(data.error);
             }
@@ -164,7 +234,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function showSuccess(message) {
-        successAlert.textContent = message;
+        successAlert.innerHTML = message;
         successAlert.style.display = 'block';
         errorAlert.style.display = 'none';
     }

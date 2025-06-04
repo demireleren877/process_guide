@@ -1497,6 +1497,45 @@ def get_excel_sheets():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+def convert_to_oracle_column_name(column_name):
+    """
+    Excel sütun isimlerini Oracle uyumlu formata dönüştürür.
+    - Türkçe karakterleri değiştirir
+    - Boşlukları alt çizgi ile değiştirir
+    - Özel karakterleri kaldırır
+    - Tüm harfleri büyük yapar
+    """
+    # Türkçe karakter dönüşümü
+    tr_chars = {
+        'ı': 'I', 'ğ': 'G', 'ü': 'U', 'ş': 'S', 'ö': 'O', 'ç': 'C',
+        'İ': 'I', 'Ğ': 'G', 'Ü': 'U', 'Ş': 'S', 'Ö': 'O', 'Ç': 'C'
+    }
+    
+    # Sütun ismini dönüştür
+    column = str(column_name)
+    for tr_char, eng_char in tr_chars.items():
+        column = column.replace(tr_char, eng_char)
+    
+    # Özel karakterleri ve boşlukları dönüştür
+    column = ''.join(c if c.isalnum() or c == '_' else '_' for c in column)
+    
+    # Birden fazla alt çizgiyi tek alt çizgiye dönüştür
+    column = '_'.join(filter(None, column.split('_')))
+    
+    # Başındaki ve sonundaki alt çizgileri kaldır
+    column = column.strip('_')
+    
+    # Tüm harfleri büyük yap
+    column = column.upper()
+    
+    # Oracle'da geçerli bir sütun ismi oluştur
+    if not column:
+        column = 'COLUMN_' + str(hash(str(column_name)) % 10000)
+    elif column[0].isdigit():
+        column = 'COLUMN_' + column
+    
+    return column
+
 @app.route('/api/excel/import', methods=['POST'])
 def import_excel():
     try:
@@ -1505,9 +1544,9 @@ def import_excel():
         
         file = request.files['file']
         sheet_name = request.form.get('sheet_name')
-        table_name = request.form.get('table_name')
+        create_new_table = request.form.get('create_new_table') == 'true'
         
-        if not all([file, sheet_name, table_name]):
+        if not all([file, sheet_name]):
             return jsonify({'success': False, 'error': 'Tüm alanlar gerekli'})
         
         # Excel dosyasını oku
@@ -1522,18 +1561,75 @@ def import_excel():
         connection = oracledb.connect(user=username, password=password, dsn=dsn)
         cursor = connection.cursor()
         
-        # Tablo yapısını al
-        cursor.execute(f"SELECT column_name FROM user_tab_columns WHERE table_name = '{table_name}'")
-        columns = [row[0] for row in cursor.fetchall()]
+        # Excel sütunlarını Oracle uyumlu formata dönüştür
+        column_mapping = {col: convert_to_oracle_column_name(col) for col in df.columns}
         
-        # DataFrame sütunlarını Oracle tablosundaki sütunlarla eşleştir
-        df = df[columns]
+        # Sütun isimlerini güncelle
+        df = df.rename(columns=column_mapping)
+        
+        if create_new_table:
+            # Yeni tablo adını al
+            new_table_name = request.form.get('new_table_name')
+            if not new_table_name:
+                return jsonify({'success': False, 'error': 'Yeni tablo adı gerekli'})
+            
+            # Tablo adını Oracle uyumlu formata dönüştür
+            new_table_name = convert_to_oracle_column_name(new_table_name)
+            
+            # Veri tiplerini belirle
+            column_types = []
+            for col in df.columns:
+                # Pandas veri tipini Oracle veri tipine dönüştür
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    column_types.append('NUMBER')
+                elif pd.api.types.is_datetime64_any_dtype(df[col]):
+                    column_types.append('DATE')
+                else:
+                    # Metin alanları için maksimum uzunluğu belirle
+                    max_length = df[col].astype(str).str.len().max()
+                    column_types.append(f'VARCHAR2({max_length + 50})')  # Biraz ekstra alan bırak
+            
+            # CREATE TABLE sorgusunu oluştur
+            create_table_query = f"""
+            CREATE TABLE {new_table_name} (
+                {', '.join(f'"{col}" {dtype}' for col, dtype in zip(df.columns, column_types))}
+            )
+            """
+            
+            try:
+                cursor.execute(create_table_query)
+                connection.commit()
+            except oracledb.DatabaseError as e:
+                error, = e.args
+                return jsonify({'success': False, 'error': f'Tablo oluşturulurken hata: {error.message}'})
+            
+            table_name = new_table_name
+        else:
+            table_name = request.form.get('table_name')
+            if not table_name:
+                return jsonify({'success': False, 'error': 'Hedef tablo adı gerekli'})
+            
+            # Tablo yapısını al
+            cursor.execute(f"SELECT column_name FROM user_tab_columns WHERE table_name = '{table_name}'")
+            oracle_columns = [row[0] for row in cursor.fetchall()]
+            
+            # Eşleşen sütunları bul
+            matching_columns = [col for col in df.columns if col in oracle_columns]
+            
+            if not matching_columns:
+                return jsonify({
+                    'success': False,
+                    'error': 'Excel dosyasındaki sütunlar Oracle tablosundaki sütunlarla eşleşmiyor.'
+                })
+            
+            # Sadece eşleşen sütunları al
+            df = df[matching_columns]
         
         # Verileri Oracle'a aktar
         for _, row in df.iterrows():
-            values = [row[col] for col in columns]
-            placeholders = ','.join([':' + str(i+1) for i in range(len(columns))])
-            insert_query = f"INSERT INTO {table_name} ({','.join(columns)}) VALUES ({placeholders})"
+            values = [row[col] for col in df.columns]
+            placeholders = ','.join([':' + str(i+1) for i in range(len(df.columns))])
+            insert_query = f"INSERT INTO {table_name} ({','.join(f'"{col}"' for col in df.columns)}) VALUES ({placeholders})"
             cursor.execute(insert_query, values)
         
         connection.commit()
@@ -1542,7 +1638,9 @@ def import_excel():
         
         return jsonify({
             'success': True,
-            'message': f'{len(df)} satır başarıyla içe aktarıldı'
+            'message': f'{len(df)} satır başarıyla içe aktarıldı' + 
+                      (f' ve {table_name} tablosu oluşturuldu' if create_new_table else ''),
+            'column_mapping': column_mapping
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
