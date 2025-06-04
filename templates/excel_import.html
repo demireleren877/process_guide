@@ -54,9 +54,9 @@
                                     <thead>
                                         <tr>
                                             <th>Excel Sütunu</th>
+                                            <th>Önerilen Oracle Sütunu</th>
+                                            <th id="oracleColumnHeader">Oracle Sütunu</th>
                                             <th>Veri Tipi</th>
-                                            <th>Oracle Sütunu</th>
-                                            <th>Oracle Veri Tipi</th>
                                             <th>İşlem</th>
                                         </tr>
                                     </thead>
@@ -68,7 +68,8 @@
                                 <small>
                                     <i class="fas fa-info-circle"></i> 
                                     Excel sütun isimleri otomatik olarak Oracle uyumlu formata dönüştürülür. 
-                                    Veri tipleri otomatik olarak belirlenir ancak gerekirse değiştirebilirsiniz.
+                                    Mevcut bir tablo seçildiğinde, sütunları eşleştirebilirsiniz.
+                                    Yeni tablo oluşturulduğunda, önerilen sütun isimleri ve veri tipleri kullanılır.
                                 </small>
                             </div>
                         </div>
@@ -209,6 +210,10 @@ document.addEventListener('DOMContentLoaded', function() {
             columnMappingSection.style.display = 'block';
             columnMappingBody.innerHTML = '';
             
+            // Oracle sütun başlığını güncelle
+            const oracleColumnHeader = document.getElementById('oracleColumnHeader');
+            oracleColumnHeader.textContent = createNewTableCheckbox.checked ? 'Oracle Sütunu' : 'Eşleşen Oracle Sütunu';
+            
             excelColumns.forEach((col, index) => {
                 const oracleCol = convertToOracleColumnName(col);
                 const row = document.createElement('tr');
@@ -217,68 +222,76 @@ document.addEventListener('DOMContentLoaded', function() {
                 const excelCell = document.createElement('td');
                 excelCell.textContent = col;
                 
-                // Excel veri tipi
-                const excelTypeCell = document.createElement('td');
-                excelTypeCell.textContent = columnTypes[col] || 'Bilinmiyor';
+                // Önerilen Oracle sütun adı
+                const suggestedCell = document.createElement('td');
+                suggestedCell.textContent = oracleCol;
                 
-                // Oracle sütun adı
+                // Oracle sütun seçimi
                 const oracleCell = document.createElement('td');
-                const oracleInput = document.createElement('input');
-                oracleInput.type = 'text';
-                oracleInput.className = 'form-control form-control-sm';
-                oracleInput.value = oracleCol;
-                oracleInput.dataset.index = index;
-                oracleInput.addEventListener('change', function() {
-                    this.value = convertToOracleColumnName(this.value);
-                });
-                oracleCell.appendChild(oracleInput);
+                if (createNewTableCheckbox.checked) {
+                    // Yeni tablo için sadece önerilen ismi göster
+                    oracleCell.textContent = oracleCol;
+                } else {
+                    // Mevcut tablo için dropdown
+                    const oracleSelect = document.createElement('select');
+                    oracleSelect.className = 'form-select form-select-sm';
+                    oracleSelect.innerHTML = '<option value="">Sütun seçin</option>';
+                    
+                    // Oracle sütunlarını ekle
+                    oracleColumns.forEach(oracleCol => {
+                        const option = document.createElement('option');
+                        option.value = oracleCol.name;
+                        option.textContent = oracleCol.name;
+                        // Eğer isimler eşleşiyorsa seçili yap
+                        if (oracleCol.name === oracleCol) {
+                            option.selected = true;
+                        }
+                        oracleSelect.appendChild(option);
+                    });
+                    oracleCell.appendChild(oracleSelect);
+                }
                 
-                // Oracle veri tipi
-                const oracleTypeCell = document.createElement('td');
-                const oracleTypeSelect = document.createElement('select');
-                oracleTypeSelect.className = 'form-select form-select-sm';
+                // Veri tipi seçimi
+                const typeCell = document.createElement('td');
+                const typeSelect = document.createElement('select');
+                typeSelect.className = 'form-select form-select-sm';
                 
                 // Veri tipine göre uygun seçenekleri ekle
                 const dataType = columnTypes[col]?.toLowerCase() || '';
                 if (dataType.includes('number') || dataType.includes('int')) {
-                    oracleTypeSelect.innerHTML = `
+                    typeSelect.innerHTML = `
                         <option value="NUMBER">NUMBER</option>
                         <option value="INTEGER">INTEGER</option>
                         <option value="FLOAT">FLOAT</option>
                     `;
                 } else if (dataType.includes('date')) {
-                    oracleTypeSelect.innerHTML = `
+                    typeSelect.innerHTML = `
                         <option value="DATE">DATE</option>
                         <option value="TIMESTAMP">TIMESTAMP</option>
                     `;
                 } else {
-                    oracleTypeSelect.innerHTML = `
+                    typeSelect.innerHTML = `
                         <option value="VARCHAR2(255)">VARCHAR2(255)</option>
                         <option value="VARCHAR2(500)">VARCHAR2(500)</option>
                         <option value="VARCHAR2(1000)">VARCHAR2(1000)</option>
                         <option value="CLOB">CLOB</option>
                     `;
                 }
-                oracleTypeCell.appendChild(oracleTypeSelect);
+                typeCell.appendChild(typeSelect);
                 
                 // İşlem butonları
                 const actionCell = document.createElement('td');
-                const excludeButton = document.createElement('button');
-                excludeButton.type = 'button';
-                excludeButton.className = 'btn btn-sm btn-outline-danger';
-                excludeButton.innerHTML = '<i class="fas fa-times"></i>';
-                excludeButton.title = 'Bu sütunu hariç tut';
-                excludeButton.addEventListener('click', function() {
-                    row.classList.toggle('table-danger');
-                    oracleInput.disabled = !oracleInput.disabled;
-                    oracleTypeSelect.disabled = !oracleTypeSelect.disabled;
-                });
-                actionCell.appendChild(excludeButton);
+                const includeCheckbox = document.createElement('input');
+                includeCheckbox.type = 'checkbox';
+                includeCheckbox.className = 'form-check-input';
+                includeCheckbox.checked = true;
+                includeCheckbox.title = 'Bu sütunu dahil et';
+                actionCell.appendChild(includeCheckbox);
                 
                 row.appendChild(excelCell);
-                row.appendChild(excelTypeCell);
+                row.appendChild(suggestedCell);
                 row.appendChild(oracleCell);
-                row.appendChild(oracleTypeCell);
+                row.appendChild(typeCell);
                 row.appendChild(actionCell);
                 
                 columnMappingBody.appendChild(row);
@@ -385,17 +398,36 @@ document.addEventListener('DOMContentLoaded', function() {
         const columnMappings = [];
         const rows = columnMappingBody.getElementsByTagName('tr');
         for (const row of rows) {
-            if (!row.classList.contains('table-danger')) {
+            const includeCheckbox = row.cells[4].querySelector('input[type="checkbox"]');
+            if (includeCheckbox.checked) {
                 const excelCol = row.cells[0].textContent;
-                const oracleCol = row.cells[2].querySelector('input').value;
-                const oracleType = row.cells[3].querySelector('select').value;
+                const suggestedCol = row.cells[1].textContent;
+                let oracleCol, oracleType;
+                
+                if (createNewTableCheckbox.checked) {
+                    oracleCol = suggestedCol;
+                    oracleType = row.cells[3].querySelector('select').value;
+                } else {
+                    const oracleSelect = row.cells[2].querySelector('select');
+                    if (!oracleSelect.value) {
+                        showError(`Lütfen "${excelCol}" sütunu için bir Oracle sütunu seçin`);
+                        return;
+                    }
+                    oracleCol = oracleSelect.value;
+                    oracleType = row.cells[3].querySelector('select').value;
+                }
+                
                 columnMappings.push({
                     excel_column: excelCol,
                     oracle_column: oracleCol,
                     oracle_type: oracleType
                 });
+                
+                // Debug için konsola yazdır
+                console.log(`Excel: ${excelCol} -> Oracle: ${oracleCol} (${oracleType})`);
             }
         }
+        
         formData.append('column_mappings', JSON.stringify(columnMappings));
         
         if (createNewTableCheckbox.checked) {
