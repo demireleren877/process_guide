@@ -1714,12 +1714,16 @@ def import_excel():
                     
                     # Boş değerleri kontrol et
                     if pd.isna(value):
-                        value = None
+                        # Sayısal alanlar için 0, diğer alanlar için None kullan
+                        if 'NUMBER' in oracle_type or 'INTEGER' in oracle_type or 'FLOAT' in oracle_type:
+                            value = 0
+                        else:
+                            value = None
                     else:
                         # Veri tipine göre dönüşüm yap
                         try:
                             if 'NUMBER' in oracle_type or 'INTEGER' in oracle_type or 'FLOAT' in oracle_type:
-                                value = float(value) if value else None
+                                value = float(value) if value else 0
                             elif 'DATE' in oracle_type or 'TIMESTAMP' in oracle_type:
                                 if isinstance(value, (pd.Timestamp, datetime)):
                                     value = value
@@ -1729,8 +1733,11 @@ def import_excel():
                                 # Karakter tipi için string'e dönüştür
                                 value = str(value) if value else None
                         except (ValueError, TypeError):
-                            # Dönüşüm başarısız olursa None olarak işaretle
-                            value = None
+                            # Dönüşüm başarısız olursa, sayısal alanlar için 0, diğer alanlar için None kullan
+                            if 'NUMBER' in oracle_type or 'INTEGER' in oracle_type or 'FLOAT' in oracle_type:
+                                value = 0
+                            else:
+                                value = None
                     
                     values.append(value)
                     columns.append(oracle_col)
