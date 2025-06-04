@@ -1707,14 +1707,45 @@ def import_excel():
             for mapping in column_mappings:
                 excel_col = mapping['excel_column']
                 oracle_col = mapping['oracle_column']
+                oracle_type = mapping['oracle_type'].upper()
                 
                 if excel_col in df.columns:
-                    values.append(row[excel_col])
+                    value = row[excel_col]
+                    
+                    # Boş değerleri kontrol et
+                    if pd.isna(value):
+                        value = None
+                    else:
+                        # Veri tipine göre dönüşüm yap
+                        try:
+                            if 'NUMBER' in oracle_type or 'INTEGER' in oracle_type or 'FLOAT' in oracle_type:
+                                value = float(value) if value else None
+                            elif 'DATE' in oracle_type or 'TIMESTAMP' in oracle_type:
+                                if isinstance(value, (pd.Timestamp, datetime)):
+                                    value = value
+                                else:
+                                    value = None
+                            else:
+                                # Karakter tipi için string'e dönüştür
+                                value = str(value) if value else None
+                        except (ValueError, TypeError):
+                            # Dönüşüm başarısız olursa None olarak işaretle
+                            value = None
+                    
+                    values.append(value)
                     columns.append(oracle_col)
             
             placeholders = ','.join([':' + str(i+1) for i in range(len(columns))])
             insert_query = f"INSERT INTO {table_name} ({','.join(f'"{col}"' for col in columns)}) VALUES ({placeholders})"
-            cursor.execute(insert_query, values)
+            
+            try:
+                cursor.execute(insert_query, values)
+            except oracledb.DatabaseError as e:
+                error, = e.args
+                return jsonify({
+                    'success': False, 
+                    'error': f'Veri aktarımı sırasında hata: {error.message}. Sütun: {excel_col}, Değer: {value}'
+                })
         
         connection.commit()
         cursor.close()

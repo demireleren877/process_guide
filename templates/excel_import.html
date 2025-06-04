@@ -110,7 +110,6 @@ document.addEventListener('DOMContentLoaded', function() {
     let excelColumns = [];
     let oracleColumns = [];
     let columnTypes = {};
-    let columnLengths = {};
     
     // Excel dosyası seçildiğinde
     fileInput.addEventListener('change', function() {
@@ -158,11 +157,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     columnTypes = data.column_types;
                     // Sütun eşleştirme tablosunu gizle
                     columnMappingSection.style.display = 'none';
-                    
-                    // Sütun uzunluklarını kontrol et
-                    if (data.column_lengths) {
-                        columnLengths = data.column_lengths;
-                    }
                 } else {
                     showError('Sütun bilgileri alınırken hata oluştu: ' + data.error);
                 }
@@ -230,10 +224,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 <option value="DECIMAL">DECIMAL</option>
             </optgroup>
             <optgroup label="Karakter Tipleri">
+                <option value="NVARCHAR2(255)">NVARCHAR2(255)</option>
+                <option value="NVARCHAR2(500)">NVARCHAR2(500)</option>
                 <option value="NVARCHAR2(1000)">NVARCHAR2(1000)</option>
-                <option value="NVARCHAR2(2000)">NVARCHAR2(2000)</option>
-                <option value="NVARCHAR2(4000)">NVARCHAR2(4000)</option>
-                <option value="NCLOB">NCLOB (Uzun metinler için)</option>
+                <option value="NCHAR(1)">NCHAR(1)</option>
+                <option value="NCHAR(10)">NCHAR(10)</option>
+                <option value="NCLOB">NCLOB</option>
             </optgroup>
             <optgroup label="Tarih Tipleri">
                 <option value="DATE">DATE</option>
@@ -315,18 +311,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else if (dataType.includes('date')) {
                     typeSelect.value = 'DATE';
                 } else {
-                    // Karakter sütunları için uzunluk kontrolü
-                    const maxLength = columnLengths?.[col] || 0;
-                    if (maxLength > 4000) {
-                        typeSelect.value = 'NCLOB';
-                        typeSelect.disabled = true; // NCLOB zorunlu
-                    } else if (maxLength > 2000) {
-                        typeSelect.value = 'NVARCHAR2(4000)';
-                    } else if (maxLength > 1000) {
-                        typeSelect.value = 'NVARCHAR2(2000)';
-                    } else {
-                        typeSelect.value = 'NVARCHAR2(1000)';
-                    }
+                    typeSelect.value = 'NVARCHAR2(255)';
                 }
                 
                 typeCell.appendChild(typeSelect);
