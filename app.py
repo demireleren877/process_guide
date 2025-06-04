@@ -11,6 +11,7 @@ import re
 import pandas as pd
 import oracledb
 from werkzeug.utils import secure_filename
+import numpy as np
 
 app = Flask(__name__)
 CORS(app)
@@ -1647,14 +1648,11 @@ def import_excel():
         # Excel dosyasını oku
         df = pd.read_excel(file, sheet_name=sheet_name)
         
-        # Oracle bağlantı bilgilerini al
-        username = app.config.get('ORACLE_USERNAME')
-        password = app.config.get('ORACLE_PASSWORD')
-        dsn = app.config.get('ORACLE_DSN')
+        # Boş satırları kaldır
+        df = df.dropna(how='all')
         
-        # Oracle'a bağlan
-        connection = oracledb.connect(user=username, password=password, dsn=dsn)
-        cursor = connection.cursor()
+        # Boş değerleri None ile değiştir
+        df = df.replace({pd.NA: None, np.nan: None})
         
         if create_new_table:
             # Yeni tablo adını al
@@ -1665,19 +1663,35 @@ def import_excel():
             # Tablo adını Oracle uyumlu formata dönüştür
             new_table_name = convert_to_oracle_column_name(new_table_name)
             
-            # CREATE TABLE sorgusunu oluştur
-            create_table_query = f"""
+            # Sütun tanımlarını oluştur
+            column_defs = []
+            for mapping in column_mappings:
+                excel_col = mapping['excel_column']
+                oracle_col = mapping['oracle_column']
+                oracle_type = mapping['oracle_type']
+                
+                # Veri tipini kontrol et ve NVARCHAR2 kullan
+                if 'VARCHAR2' in oracle_type:
+                    oracle_type = oracle_type.replace('VARCHAR2', 'NVARCHAR2')
+                elif 'CHAR' in oracle_type and not oracle_type.startswith('N'):
+                    oracle_type = 'N' + oracle_type
+                elif oracle_type == 'CLOB':
+                    oracle_type = 'NCLOB'
+                
+                column_defs.append(f"{oracle_col} {oracle_type}")
+            
+            # Tablo oluşturma SQL'i
+            create_table_sql = f"""
             CREATE TABLE {new_table_name} (
-                {', '.join(f'"{mapping["oracle_column"]}" {mapping["oracle_type"]}' for mapping in column_mappings)}
+                {', '.join(column_defs)}
             )
             """
             
-            try:
-                cursor.execute(create_table_query)
-                connection.commit()
-            except oracledb.DatabaseError as e:
-                error, = e.args
-                return jsonify({'success': False, 'error': f'Tablo oluşturulurken hata: {error.message}'})
+            # Tabloyu oluştur
+            with get_oracle_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(create_table_sql)
+                conn.commit()
             
             table_name = new_table_name
         else:
@@ -1700,25 +1714,39 @@ def import_excel():
                 })
         
         # Verileri Oracle'a aktar
-        for _, row in df.iterrows():
-            values = []
-            columns = []
+        with get_oracle_connection() as conn:
+            cursor = conn.cursor()
             
-            for mapping in column_mappings:
-                excel_col = mapping['excel_column']
-                oracle_col = mapping['oracle_column']
+            # Sütun eşleştirmelerini kullanarak verileri hazırla
+            data_to_insert = []
+            for _, row in df.iterrows():
+                row_data = {}
+                for mapping in column_mappings:
+                    excel_col = mapping['excel_column']
+                    oracle_col = mapping['oracle_column']
+                    
+                    # Boş değerleri kontrol et
+                    value = row.get(excel_col)
+                    if pd.isna(value) or value == '':
+                        value = None
+                    
+                    row_data[oracle_col] = value
+                data_to_insert.append(row_data)
+            
+            # Verileri ekle
+            for data in data_to_insert:
+                columns = list(data.keys())
+                values = list(data.values())
+                placeholders = [':{}'.format(i+1) for i in range(len(columns))]
                 
-                if excel_col in df.columns:
-                    values.append(row[excel_col])
-                    columns.append(oracle_col)
+                insert_sql = f"""
+                INSERT INTO {table_name} ({', '.join(columns)})
+                VALUES ({', '.join(placeholders)})
+                """
+                
+                cursor.execute(insert_sql, values)
             
-            placeholders = ','.join([':' + str(i+1) for i in range(len(columns))])
-            insert_query = f"INSERT INTO {table_name} ({','.join(f'"{col}"' for col in columns)}) VALUES ({placeholders})"
-            cursor.execute(insert_query, values)
-        
-        connection.commit()
-        cursor.close()
-        connection.close()
+            conn.commit()
         
         # Sütun eşleştirme bilgilerini hazırla
         column_mapping = {mapping['excel_column']: mapping['oracle_column'] for mapping in column_mappings}

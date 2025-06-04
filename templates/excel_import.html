@@ -118,11 +118,17 @@ document.addEventListener('DOMContentLoaded', function() {
             newTableSection.style.display = 'block';
             tableSelect.disabled = true;
             newTableNameInput.disabled = false;
+            // Yeni tablo seçildiğinde sütun eşleştirme tablosunu göster
+            if (excelColumns.length > 0) {
+                updateColumnMapping();
+            }
         } else {
             existingTableSection.style.display = 'block';
             newTableSection.style.display = 'none';
             tableSelect.disabled = false;
             newTableNameInput.disabled = true;
+            // Sütun eşleştirme tablosunu gizle
+            columnMappingSection.style.display = 'none';
         }
         checkImportButtonState();
     });
@@ -170,7 +176,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (data.success) {
                     excelColumns = data.columns;
                     columnTypes = data.column_types;
-                    updateColumnMapping();
+                    // Sütun eşleştirme tablosunu gizle
+                    columnMappingSection.style.display = 'none';
                 } else {
                     showError('Sütun bilgileri alınırken hata oluştu: ' + data.error);
                 }
@@ -197,6 +204,9 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => {
                 showError('Oracle sütun bilgileri alınırken hata oluştu: ' + error);
             });
+        } else {
+            // Tablo seçimi kaldırıldığında sütun eşleştirme tablosunu gizle
+            columnMappingSection.style.display = 'none';
         }
     });
 
@@ -274,12 +284,12 @@ document.addEventListener('DOMContentLoaded', function() {
                         <option value="DECIMAL">DECIMAL</option>
                     </optgroup>
                     <optgroup label="Karakter Tipleri">
-                        <option value="VARCHAR2(255)">VARCHAR2(255)</option>
-                        <option value="VARCHAR2(500)">VARCHAR2(500)</option>
-                        <option value="VARCHAR2(1000)">VARCHAR2(1000)</option>
-                        <option value="CHAR(1)">CHAR(1)</option>
-                        <option value="CHAR(10)">CHAR(10)</option>
-                        <option value="CLOB">CLOB</option>
+                        <option value="NVARCHAR2(255)">NVARCHAR2(255)</option>
+                        <option value="NVARCHAR2(500)">NVARCHAR2(500)</option>
+                        <option value="NVARCHAR2(1000)">NVARCHAR2(1000)</option>
+                        <option value="NCHAR(1)">NCHAR(1)</option>
+                        <option value="NCHAR(10)">NCHAR(10)</option>
+                        <option value="NCLOB">NCLOB</option>
                     </optgroup>
                     <optgroup label="Tarih Tipleri">
                         <option value="DATE">DATE</option>
@@ -294,7 +304,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else if (dataType.includes('date')) {
                     typeSelect.value = 'DATE';
                 } else {
-                    typeSelect.value = 'VARCHAR2(255)';
+                    typeSelect.value = 'NVARCHAR2(255)';
                 }
                 
                 typeCell.appendChild(typeSelect);
