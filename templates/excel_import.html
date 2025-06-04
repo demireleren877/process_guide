@@ -288,10 +288,51 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Excel sütun adını Oracle formatına dönüştür
     function convertToOracleColumnName(name) {
-        return name
-            .replace(/[^a-zA-Z0-9]/g, '_')
-            .replace(/_+/g, '_')
-            .toUpperCase();
+        // Türkçe karakter dönüşümü
+        const trChars = {
+            'ı': 'I', 'ğ': 'G', 'ü': 'U', 'ş': 'S', 'ö': 'O', 'ç': 'C',
+            'İ': 'I', 'Ğ': 'G', 'Ü': 'U', 'Ş': 'S', 'Ö': 'O', 'Ç': 'C',
+            'i': 'I', 'g': 'G', 'u': 'U', 's': 'S', 'o': 'O', 'c': 'C'
+        };
+        
+        let column = String(name);
+        
+        // Türkçe karakterleri değiştir
+        for (const [trChar, engChar] of Object.entries(trChars)) {
+            column = column.replace(new RegExp(trChar, 'g'), engChar);
+        }
+        
+        // Boşlukları ve özel karakterleri alt çizgi ile değiştir
+        column = column.replace(/[^a-zA-Z0-9]/g, '_');
+        
+        // Birden fazla alt çizgiyi tek alt çizgiye dönüştür
+        column = column.replace(/_+/g, '_');
+        
+        // Başındaki ve sonundaki alt çizgileri kaldır
+        column = column.replace(/^_+|_+$/g, '');
+        
+        // Tüm harfleri büyük yap
+        column = column.toUpperCase();
+        
+        // Oracle'da geçerli bir sütun ismi oluştur
+        if (!column) {
+            column = 'COLUMN_' + Math.abs(hashCode(name) % 10000);
+        } else if (/^\d/.test(column)) {
+            column = 'COLUMN_' + column;
+        }
+        
+        return column;
+    }
+    
+    // String hash fonksiyonu
+    function hashCode(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+        }
+        return hash;
     }
     
     // Sayfa veya tablo seçimi değiştiğinde buton durumunu kontrol et

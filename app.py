@@ -1508,19 +1508,22 @@ def convert_to_oracle_column_name(column_name):
     # Türkçe karakter dönüşümü
     tr_chars = {
         'ı': 'I', 'ğ': 'G', 'ü': 'U', 'ş': 'S', 'ö': 'O', 'ç': 'C',
-        'İ': 'I', 'Ğ': 'G', 'Ü': 'U', 'Ş': 'S', 'Ö': 'O', 'Ç': 'C'
+        'İ': 'I', 'Ğ': 'G', 'Ü': 'U', 'Ş': 'S', 'Ö': 'O', 'Ç': 'C',
+        'i': 'I', 'g': 'G', 'u': 'U', 's': 'S', 'o': 'O', 'c': 'C'
     }
     
     # Sütun ismini dönüştür
     column = str(column_name)
+    
+    # Türkçe karakterleri değiştir
     for tr_char, eng_char in tr_chars.items():
         column = column.replace(tr_char, eng_char)
     
-    # Özel karakterleri ve boşlukları dönüştür
-    column = ''.join(c if c.isalnum() or c == '_' else '_' for c in column)
+    # Boşlukları ve özel karakterleri alt çizgi ile değiştir
+    column = re.sub(r'[^a-zA-Z0-9]', '_', column)
     
     # Birden fazla alt çizgiyi tek alt çizgiye dönüştür
-    column = '_'.join(filter(None, column.split('_')))
+    column = re.sub(r'_+', '_', column)
     
     # Başındaki ve sonundaki alt çizgileri kaldır
     column = column.strip('_')
