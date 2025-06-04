@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">Excel'den Oracle'a Veri Aktarımı</h4>
+                </div>
+                <div class="card-body">
+                    <form id="excelImportForm" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label for="excelFile" class="form-label">Excel Dosyası</label>
+                            <input type="file" class="form-control" id="excelFile" accept=".xlsx,.xls" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="sheetSelect" class="form-label">Excel Sayfası</label>
+                            <select class="form-select" id="sheetSelect" required disabled>
+                                <option value="">Önce Excel dosyası seçin</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="tableSelect" class="form-label">Hedef Oracle Tablosu</label>
+                            <select class="form-select" id="tableSelect" required>
+                                <option value="">Yükleniyor...</option>
+                            </select>
+                        </div>
+                        
+                        <div class="alert alert-info" id="previewInfo" style="display: none;">
+                            <h5>Önizleme</h5>
+                            <div id="previewContent"></div>
+                        </div>
+                        
+                        <div class="alert alert-danger" id="errorAlert" style="display: none;"></div>
+                        <div class="alert alert-success" id="successAlert" style="display: none;"></div>
+                        
+                        <button type="submit" class="btn btn-primary" id="importButton" disabled>
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display: none;"></span>
+                            İçe Aktar
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('excelImportForm');
+    const fileInput = document.getElementById('excelFile');
+    const sheetSelect = document.getElementById('sheetSelect');
+    const tableSelect = document.getElementById('tableSelect');
+    const previewInfo = document.getElementById('previewInfo');
+    const previewContent = document.getElementById('previewContent');
+    const errorAlert = document.getElementById('errorAlert');
+    const successAlert = document.getElementById('successAlert');
+    const importButton = document.getElementById('importButton');
+    
+    // Oracle tablolarını yükle
+    fetch('/api/oracle/tables')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                tableSelect.innerHTML = '<option value="">Tablo seçin</option>' +
+                    data.tables.map(table => `<option value="${table}">${table}</option>`).join('');
+            } else {
+                showError('Tablolar yüklenirken hata oluştu: ' + data.error);
+            }
+        })
+        .catch(error => {
+            showError('Tablolar yüklenirken hata oluştu: ' + error);
+        });
+    
+    // Excel dosyası seçildiğinde
+    fileInput.addEventListener('change', function() {
+        if (this.files.length > 0) {
+            const formData = new FormData();
+            formData.append('file', this.files[0]);
+            
+            fetch('/api/excel/sheets', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    sheetSelect.innerHTML = '<option value="">Sayfa seçin</option>' +
+                        data.sheets.map(sheet => `<option value="${sheet}">${sheet}</option>`).join('');
+                    sheetSelect.disabled = false;
+                } else {
+                    showError('Sayfalar yüklenirken hata oluştu: ' + data.error);
+                }
+            })
+            .catch(error => {
+                showError('Sayfalar yüklenirken hata oluştu: ' + error);
+            });
+        }
+    });
+    
+    // Form gönderildiğinde
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        if (!fileInput.files.length || !sheetSelect.value || !tableSelect.value) {
+            showError('Lütfen tüm alanları doldurun');
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('sheet_name', sheetSelect.value);
+        formData.append('table_name', tableSelect.value);
+        
+        importButton.disabled = true;
+        importButton.querySelector('.spinner-border').style.display = 'inline-block';
+        
+        fetch('/api/excel/import', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showSuccess(data.message);
+                form.reset();
+                sheetSelect.disabled = true;
+                importButton.disabled = true;
+            } else {
+                showError(data.error);
+            }
+        })
+        .catch(error => {
+            showError('İçe aktarma sırasında hata oluştu: ' + error);
+        })
+        .finally(() => {
+            importButton.disabled = false;
+            importButton.querySelector('.spinner-border').style.display = 'none';
+        });
+    });
+    
+    function showError(message) {
+        errorAlert.textContent = message;
+        errorAlert.style.display = 'block';
+        successAlert.style.display = 'none';
+    }
+    
+    function showSuccess(message) {
+        successAlert.textContent = message;
+        successAlert.style.display = 'block';
+        errorAlert.style.display = 'none';
+    }
+});
+</script>
+{% endblock %} 

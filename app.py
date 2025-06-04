@@ -6,9 +6,11 @@ from datetime import datetime
 import os
 from executor import ProcessExecutor
 import json
-import cx_Oracle
 from collections import Counter
 import re
+import pandas as pd
+import oracledb
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 CORS(app)
@@ -16,8 +18,9 @@ CORS(app)
 app.secret_key = 'your-super-secret-key-here'  
 
 # Oracle veritabanı bağlantı ayarları
-app.config['SQLALCHEMY_DATABASE_URI'] = 'oracle+cx_oracle://username:password@dsn'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['ORACLE_USERNAME'] = 'your_username'
+app.config['ORACLE_PASSWORD'] = 'your_password'
+app.config['ORACLE_DSN'] = 'your_dsn'
 
 # Oracle bağlantı bilgilerini executor'a ilet
 ProcessExecutor.set_oracle_config(
@@ -25,6 +28,9 @@ ProcessExecutor.set_oracle_config(
     password="your_password",
     dsn="your_dsn"
 )
+
+app.config['SQLALCHEMY_DATABASE_URI'] = 'oracle+cx_oracle://username:password@dsn'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 @app.template_filter('from_json')
 def from_json(value):
@@ -1437,6 +1443,109 @@ def get_responsible_steps(responsible):
         'completion_rate': completion_rate,
         'steps': step_details
     })
+
+@app.route('/excel-import')
+def excel_import():
+    return render_template('excel_import.html')
+
+@app.route('/api/oracle/tables')
+def get_oracle_tables():
+    try:
+        # Oracle bağlantı bilgilerini al
+        username = app.config.get('ORACLE_USERNAME')
+        password = app.config.get('ORACLE_PASSWORD')
+        dsn = app.config.get('ORACLE_DSN')
+        
+        # Oracle'a bağlan
+        connection = oracledb.connect(user=username, password=password, dsn=dsn)
+        cursor = connection.cursor()
+        
+        # Kullanıcının erişebildiği tabloları al
+        cursor.execute("""
+            SELECT table_name 
+            FROM user_tables 
+            ORDER BY table_name
+        """)
+        
+        tables = [row[0] for row in cursor.fetchall()]
+        
+        cursor.close()
+        connection.close()
+        
+        return jsonify({'success': True, 'tables': tables})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/excel/sheets', methods=['POST'])
+def get_excel_sheets():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'Dosya yüklenmedi'})
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'Dosya seçilmedi'})
+        
+        if not file.filename.endswith(('.xlsx', '.xls')):
+            return jsonify({'success': False, 'error': 'Sadece Excel dosyaları (.xlsx, .xls) yüklenebilir'})
+        
+        # Excel dosyasını oku
+        excel_file = pd.ExcelFile(file)
+        sheets = excel_file.sheet_names
+        
+        return jsonify({'success': True, 'sheets': sheets})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/excel/import', methods=['POST'])
+def import_excel():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'Dosya yüklenmedi'})
+        
+        file = request.files['file']
+        sheet_name = request.form.get('sheet_name')
+        table_name = request.form.get('table_name')
+        
+        if not all([file, sheet_name, table_name]):
+            return jsonify({'success': False, 'error': 'Tüm alanlar gerekli'})
+        
+        # Excel dosyasını oku
+        df = pd.read_excel(file, sheet_name=sheet_name)
+        
+        # Oracle bağlantı bilgilerini al
+        username = app.config.get('ORACLE_USERNAME')
+        password = app.config.get('ORACLE_PASSWORD')
+        dsn = app.config.get('ORACLE_DSN')
+        
+        # Oracle'a bağlan
+        connection = oracledb.connect(user=username, password=password, dsn=dsn)
+        cursor = connection.cursor()
+        
+        # Tablo yapısını al
+        cursor.execute(f"SELECT column_name FROM user_tab_columns WHERE table_name = '{table_name}'")
+        columns = [row[0] for row in cursor.fetchall()]
+        
+        # DataFrame sütunlarını Oracle tablosundaki sütunlarla eşleştir
+        df = df[columns]
+        
+        # Verileri Oracle'a aktar
+        for _, row in df.iterrows():
+            values = [row[col] for col in columns]
+            placeholders = ','.join([':' + str(i+1) for i in range(len(columns))])
+            insert_query = f"INSERT INTO {table_name} ({','.join(columns)}) VALUES ({placeholders})"
+            cursor.execute(insert_query, values)
+        
+        connection.commit()
+        cursor.close()
+        connection.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'{len(df)} satır başarıyla içe aktarıldı'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 if __name__ == '__main__':
     with app.app_context():
