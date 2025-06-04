@@ -5,12 +5,18 @@ import pandas as pd
 import sqlite3
 import json
 from datetime import datetime
-import win32com.client
-import pythoncom
-import cx_Oracle
+import platform
 import logging
 
 logger = logging.getLogger(__name__)
+
+IS_WINDOWS = platform.system() == 'Windows'
+
+if IS_WINDOWS:
+    import win32com.client
+    import pythoncom
+
+import cx_Oracle
 
 class ProcessExecutor:
     _instance = None
@@ -97,6 +103,13 @@ class ProcessExecutor:
 
     @staticmethod
     def send_mail(variables_list):
+        if not IS_WINDOWS:
+            return {
+                'success': False,
+                'output': None,
+                'error': 'Mail gönderme özelliği sadece Windows işletim sisteminde desteklenmektedir.'
+            }
+
         # Süreç kontrolü
         check_result = ProcessExecutor.check_process_started()
         if check_result:
@@ -158,7 +171,8 @@ class ProcessExecutor:
                     'error': str(e)
                 })
             finally:
-                pythoncom.CoUninitialize()
+                if IS_WINDOWS:
+                    pythoncom.CoUninitialize()
         # Eğer hepsi başarılıysa success True, biri bile başarısızsa False
         overall_success = all(r['success'] for r in results)
         return {
@@ -170,6 +184,13 @@ class ProcessExecutor:
 
     @staticmethod
     def execute_mail_check(start_date=None):
+        if not IS_WINDOWS:
+            return {
+                'success': False,
+                'output': None,
+                'error': 'Mail kontrol özelliği sadece Windows işletim sisteminde desteklenmektedir.'
+            }
+
         check_result = ProcessExecutor.check_process_started()
         if check_result:
             return check_result
@@ -217,9 +238,8 @@ class ProcessExecutor:
             print(f"[ERROR][MAIL_CHECK] {str(e)}")
             return {'success': False, 'error': str(e)}
         finally:
-            pythoncom.CoUninitialize()
-
-    import shutil
+            if IS_WINDOWS:
+                pythoncom.CoUninitialize()
 
     @staticmethod
     def execute_python_script(file_path, output_dir=None, variables=None):

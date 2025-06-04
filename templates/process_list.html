@@ -1,0 +1,653 @@
+{% extends "base.html" %}
+
+{% block title %}
+{% if is_uncategorized %}
+Kategorisiz Süreçler - {{ year }} - {{ super() }}
+{% else %}
+{{ category.name }} - {{ year }} - {{ super() }}
+{% endif %}
+{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+    .process-card {
+        transition: transform 0.2s;
+        border: none;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    [data-bs-theme="light"] .process-card {
+        background-color: var(--bs-white);
+        color: var(--bs-dark);
+    }
+
+    [data-bs-theme="dark"] .process-card {
+        background-color: var(--bs-dark);
+    }
+
+    .process-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    }
+
+    .editable {
+        cursor: pointer;
+        position: relative;
+    }
+
+    .editable:hover::after {
+        content: '✎';
+        position: absolute;
+        margin-left: 5px;
+        opacity: 0.5;
+    }
+
+    .edit-input {
+        width: 100%;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        padding: 5px;
+    }
+
+    .edit-textarea {
+        width: 100%;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        padding: 5px;
+        resize: vertical;
+        min-height: 60px;
+    }
+
+    .progress {
+        position: relative;
+        height: 20px;
+    }
+
+    .progress-bar {
+        transition: width 0.3s ease;
+    }
+
+    .progress-text {
+        position: absolute;
+        width: 100%;
+        left: 0;
+        text-align: center;
+        line-height: 20px;
+        color: #fff;
+        font-weight: 700;
+        font-size: 0.875rem;
+        z-index: 1;
+    }
+
+    [data-bs-theme="light"] .progress-text {
+        color: var(--bs-dark) !important;
+    }
+
+    [data-bs-theme="dark"] .progress-text {
+        color: var(--bs-light) !important;
+    }
+
+    [data-bs-theme="light"] .dropdown-menu {
+        background-color: var(--bs-white) !important;
+    }
+
+    [data-bs-theme="dark"] .dropdown-menu {
+        background-color: var(--bs-dark) !important;
+    }
+
+    [data-bs-theme="light"] .dropdown-item:hover {
+        background-color: var(--bs-gray-100) !important;
+        color: var(--bs-gray-700) !important;
+    }
+
+    [data-bs-theme="dark"] .dropdown-item:hover {
+        background-color: var(--bs-gray-800) !important;
+        color: var(--bs-light) !important;
+    }
+
+
+
+    #flowchartModal .modal-dialog {
+        max-width: 90vw;
+        width: 90vw;
+        margin: 1.75rem auto;
+        height: 90vh;
+    }
+
+    #flowchartModal .modal-content {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #flowchartModal .modal-body {
+        flex: 1;
+        padding: 0;
+        position: relative;
+        overflow: hidden;
+    }
+
+    #flowchartNetwork {
+        width: 100%;
+        height: 100%;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+        position: absolute;
+    }
+
+    .vis-network {
+        outline: none;
+    }
+
+    .vis-network .vis-label {
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    .vis-network .vis-label .vis-inner {
+        padding: 8px;
+    }
+
+    .vis-network .vis-label.main {
+        background-color: #0d6efd;
+        color: white;
+    }
+
+    .vis-network .vis-label.python_script {
+        background-color: #ffc107;
+        color: #000;
+    }
+
+    .vis-network .vis-label.sql_script {
+        background-color: #198754;
+        color: white;
+    }
+
+    .vis-network .vis-label.sql_procedure {
+        background-color: #dc3545;
+        color: white;
+    }
+
+    .vis-network .vis-label.mail {
+        background-color: #0dcaf0;
+        color: white;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-0">
+                <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Kategoriler</a></li>
+                {% if is_uncategorized %}
+                <li class="breadcrumb-item"><a href="{{ url_for('uncategorized_years') }}">Kategorisiz</a></li>
+                {% else %}
+                <li class="breadcrumb-item"><a href="{{ url_for('category_years', category_id=category.id) }}">{{
+                        category.name }}</a></li>
+                {% endif %}
+                <li class="breadcrumb-item active">{{ year }}</li>
+            </ol>
+        </nav>
+        <div>
+            <a href="{{ url_for('new_process') }}" class="btn btn-success">
+                <i class="bi bi-plus-lg"></i> Yeni Süreç
+            </a>
+        </div>
+    </div>
+
+    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for process in processes %}
+        <div class="col">
+            <div class="card h-100 process-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h5 class="card-title mb-0">
+                            <span class="editable process-name" data-process-id="{{ process.id }}">{{ process.name
+                                }}</span>
+                            <input type="text" class="edit-input d-none" value="{{ process.name }}">
+                        </h5>
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown">
+                                <i class="bi bi-three-dots-vertical"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <form action="" method="POST" class="d-inline">
+                                        <button type="submit" class="dropdown-item">
+                                            <i class="bi bi-files me-2"></i> Akış Şeması
+                                        </button>
+                                    </form>
+                                </li>
+                                <li>
+                                    <button type="button" class="dropdown-item" data-bs-toggle="modal"
+                                        data-bs-target="#updateProcessModal{{ process.id }}">
+                                        <i class="bi bi-pencil-square me-2"></i> Kategori/Yıl Değiştir
+                                    </button>
+                                </li>
+                                <li>
+                                    <form action="{{ url_for('copy_process', process_id=process.id) }}" method="POST"
+                                        class="d-inline">
+                                        <button type="submit" class="dropdown-item">
+                                            <i class="bi bi-files me-2"></i> Kopyala
+                                        </button>
+                                    </form>
+                                </li>
+                                <li>
+                                    <form action="{{ url_for('delete_process', process_id=process.id) }}" method="POST"
+                                        onsubmit="return confirm('Bu süreci silmek istediğinizden emin misiniz?')"
+                                        class="d-inline">
+                                        <button type="submit" class="dropdown-item text-danger">
+                                            <i class="bi bi-trash me-2"></i> Sil
+                                        </button>
+                                    </form>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                    <p class="card-text text-muted">
+                        <span class="editable process-description" data-process-id="{{ process.id }}">
+                            {{ process.description or 'Açıklama ekle...' }}
+                        </span>
+                        <textarea class="edit-textarea d-none">{{ process.description or '' }}</textarea>
+                    </p>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="progress flex-grow-1 me-2">
+                            <div class="progress-bar" role="progressbar"
+                                aria-valuenow="{{ process.get_completion_percentage() }}" aria-valuemin="0"
+                                aria-valuemax="100" style="width: {{ process.get_completion_percentage() }}%">
+                                <span class="progress-text">{{ process.get_completion_percentage() }}%</span>
+                            </div>
+                        </div>
+                        <a href="{{ url_for('process_detail', process_id=process.id) }}"
+                            class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-arrow-right"></i>
+                        </a>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <small class="text-muted">
+                        <i class="bi bi-clock"></i> {{ process.created_at|format_datetime }}
+                    </small>
+                    <span class="float-end">
+                        {% if process.get_status() == 'done' %}
+                        <span class="badge bg-success">Tamamlandı</span>
+                        {% elif process.get_status() == 'in_progress' %}
+                        <span class="badge bg-primary">Devam Ediyor</span>
+                        {% elif process.get_status() == 'waiting' %}
+                        <span class="badge bg-warning">Beklemede</span>
+                        {% else %}
+                        <span class="badge bg-secondary">Başlamadı</span>
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal -->
+        <div class="modal fade" id="updateProcessModal{{ process.id }}" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Süreç Bilgilerini Güncelle</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <form action="{{ url_for('update_process_category', process_id=process.id) }}" method="POST">
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label for="category{{ process.id }}" class="form-label">Kategori</label>
+                                <select class="form-select" id="category{{ process.id }}" name="category_id">
+                                    <option value="">Kategorisiz</option>
+                                    {% for cat in all_categories %}
+                                    <option value="{{ cat.id }}" {% if cat.id==process.category_id %}selected{% endif
+                                        %}>
+                                        {{ cat.name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="year{{ process.id }}" class="form-label">Yıl</label>
+                                <select class="form-select" id="year{{ process.id }}" name="year">
+                                    {% for y in range(current_year + 5, current_year - 5, -1) %}
+                                    <option value="{{ y }}" {% if y==process.year %}selected{% endif %}>{{ y }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary"
+                                data-bs-dismiss="modal">İptal</button>
+                            <button type="submit" class="btn btn-primary">Kaydet</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Flowchart Modal -->
+<div class="modal fade" id="flowchartModal" tabindex="-1" aria-labelledby="flowchartModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="flowchartModalLabel">Süreç Akış Şeması</h5>
+                <button type="button" class="btn btn-outline-secondary btn-sm ms-2" id="toggleDirectionBtn">
+                    <i class="bi bi-arrow-down-up"></i> Yön Değiştir
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm ms-2" id="exportPdfBtn">
+                    <i class="bi bi-file-earmark-pdf"></i> PDF'e Aktar
+                </button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div id="flowchartNetwork"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- vis.js kütüphanesini ekle -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css" rel="stylesheet" type="text/css" />
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<script>
+    // İsim düzenleme
+    document.querySelectorAll('.process-name').forEach(nameSpan => {
+        nameSpan.addEventListener('click', function () {
+            const input = this.nextElementSibling;
+            this.classList.add('d-none');
+            input.classList.remove('d-none');
+            input.focus();
+            input.dataset.version = this.dataset.version;
+        });
+    });
+
+    // Açıklama düzenleme
+    document.querySelectorAll('.process-description').forEach(descSpan => {
+        descSpan.addEventListener('click', function () {
+            const textarea = this.nextElementSibling;
+            this.classList.add('d-none');
+            textarea.classList.remove('d-none');
+            textarea.focus();
+        });
+    });
+
+    // İsim kaydetme
+    document.querySelectorAll('.process-name + .edit-input').forEach(input => {
+        input.addEventListener('blur', async function () {
+            const span = this.previousElementSibling;
+            const processId = span.dataset.processId;
+            const currentVersion = span.dataset.version;
+            const newValue = this.value.trim();
+
+            if (newValue && newValue !== span.textContent) {
+                try {
+                    const response = await fetch(`/process/${processId}/update`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: `field=name&value=${encodeURIComponent(newValue)}&version=${currentVersion}`
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        span.textContent = newValue;
+                        span.dataset.version = result.new_version;
+                    } else {
+                        alert(result.error || 'Güncelleme sırasında bir hata oluştu');
+                        if (result.error && result.error.includes('başka bir kullanıcı')) {
+                            window.location.reload();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Güncelleme hatası:', error);
+                    alert('Güncelleme sırasında bir hata oluştu');
+                }
+            }
+
+            this.classList.add('d-none');
+            span.classList.remove('d-none');
+        });
+
+        input.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                this.blur();
+            }
+        });
+    });
+
+    // Açıklama kaydetme
+    document.querySelectorAll('.process-description + .edit-textarea').forEach(textarea => {
+        textarea.addEventListener('blur', async function () {
+            const span = this.previousElementSibling;
+            const processId = span.dataset.processId;
+            const newValue = this.value.trim();
+
+            try {
+                const response = await fetch(`/process/${processId}/update`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `field=description&value=${encodeURIComponent(newValue)}`
+                });
+
+                if (response.ok) {
+                    span.textContent = newValue || 'Açıklama ekle...';
+                }
+            } catch (error) {
+                console.error('Güncelleme hatası:', error);
+            }
+
+            this.classList.add('d-none');
+            span.classList.remove('d-none');
+        });
+    });
+
+    let network = null;
+    let flowchartModal = null;
+    let isHorizontal = false; // Başlangıçta dikey görünüm için false yapıyoruz
+
+    document.addEventListener('DOMContentLoaded', function () {
+        flowchartModal = new bootstrap.Modal(document.getElementById('flowchartModal'));
+
+        // Flowchart modalı açıldığında çalışacak event listener
+        document.getElementById('flowchartModal').addEventListener('shown.bs.modal', function () {
+            if (network) {
+                setTimeout(() => {
+                    network.fit({
+                        animation: {
+                            duration: 1000,
+                            easingFunction: 'easeInOutQuad'
+                        }
+                    });
+                }, 100);
+            }
+        });
+
+        // Yön değiştirme butonuna tıklama
+        document.getElementById('toggleDirectionBtn').addEventListener('click', function () {
+            if (!network) return;
+            isHorizontal = !isHorizontal;
+
+            const options = {
+                edges: {
+                    smooth: {
+                        enabled: true,
+                        type: 'cubicBezier',
+                        forceDirection: isHorizontal ? 'horizontal' : 'vertical',
+                        roundness: 0.3
+                    }
+                },
+                layout: {
+                    hierarchical: {
+                        enabled: true,
+                        direction: isHorizontal ? 'LR' : 'UD',
+                        sortMethod: 'directed',
+                        levelSeparation: 250,
+                        nodeSpacing: 200,
+                        treeSpacing: 200,
+                        blockShifting: true,
+                        edgeMinimization: true,
+                        parentCentralization: true,
+                        shakeTowards: isHorizontal ? 'roots' : 'leaves'
+                    }
+                }
+            };
+
+            network.setOptions(options);
+
+            // Yeniden düzenleme ve merkezleme
+            setTimeout(() => {
+                network.stabilize();
+                network.fit({
+                    animation: {
+                        duration: 1000,
+                        easingFunction: 'easeInOutQuad'
+                    }
+                });
+            }, 100);
+        });
+
+        // PDF export butonuna tıklama
+        document.getElementById('exportPdfBtn').addEventListener('click', function () {
+            if (!network) return;
+            // vis.js canvas'ını PNG olarak al
+            const dataUrl = network.canvas.frame.canvas.toDataURL();
+            // jsPDF ile PDF oluştur
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF({ orientation: 'portrait' });
+            // PDF boyutunu ayarla
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            // Görselin oranını koruyarak boyutlandır
+            const img = new Image();
+            img.onload = function () {
+                let imgWidth = img.width;
+                let imgHeight = img.height;
+                let ratio = Math.min(pageWidth / imgWidth, pageHeight / imgHeight);
+                let w = imgWidth * ratio;
+                let h = imgHeight * ratio;
+                let x = (pageWidth - w) / 2;
+                let y = (pageHeight - h) / 2;
+                pdf.addImage(dataUrl, 'PNG', x, y, w, h);
+                pdf.save('akış-şeması.pdf');
+            };
+            img.src = dataUrl;
+        });
+    });
+
+    // Akış şeması gösterme fonksiyonu
+    function showFlowchart(processId) {
+        fetch(`/api/process/${processId}/flowchart`)
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('flowchartNetwork');
+                const options = {
+                    nodes: {
+                        shape: 'box',
+                        margin: 10,
+                        font: {
+                            size: 14,
+                            multi: true
+                        },
+                        widthConstraint: {
+                            minimum: 150,
+                            maximum: 300
+                        },
+                        borderWidth: 2,
+                        borderWidthSelected: 3,
+                        shadow: true
+                    },
+                    edges: {
+                        arrows: 'to',
+                        smooth: {
+                            enabled: true,
+                            type: 'cubicBezier',
+                            forceDirection: isHorizontal ? 'horizontal' : 'vertical',
+                            roundness: 0.3
+                        },
+                        width: 2,
+                        shadow: true
+                    },
+                    layout: {
+                        hierarchical: {
+                            enabled: true,
+                            direction: isHorizontal ? 'LR' : 'UD',
+                            sortMethod: 'directed',
+                            levelSeparation: 250,
+                            nodeSpacing: 200,
+                            treeSpacing: 200,
+                            blockShifting: true,
+                            edgeMinimization: true,
+                            parentCentralization: true,
+                            shakeTowards: isHorizontal ? 'roots' : 'leaves'
+                        }
+                    },
+                    physics: {
+                        enabled: true,
+                        hierarchicalRepulsion: {
+                            nodeDistance: 250,
+                            springLength: 250
+                        },
+                        stabilization: {
+                            enabled: true,
+                            iterations: 1000,
+                            updateInterval: 100,
+                            fit: true // Stabilizasyon sırasında otomatik fit yapılmasını sağlar
+                        }
+                    },
+                    interaction: {
+                        dragNodes: true,
+                        dragView: true,
+                        zoomView: true,
+                        hover: true
+                    }
+                };
+
+                if (network) {
+                    network.destroy();
+                }
+
+                network = new vis.Network(container, data, options);
+
+                // Şemayı merkezle ve stabilize et
+                network.once('stabilizationIterationsDone', function () {
+                    setTimeout(() => {
+                        network.fit({
+                            animation: {
+                                duration: 1000,
+                                easingFunction: 'easeInOutQuad'
+                            }
+                        });
+                    }, 100);
+                });
+
+                flowchartModal.show();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Akış şeması yüklenirken bir hata oluştu.');
+            });
+    }
+    // Akış şeması butonuna tıklama olayı ekle
+    document.querySelectorAll('.dropdown-item').forEach(item => {
+        if (item.textContent.trim() === 'Akış Şeması') {
+            item.addEventListener('click', function (e) {
+                e.preventDefault();
+                const processId = this.closest('.card').querySelector('.process-name').dataset.processId;
+                showFlowchart(processId);
+            });
+        }
+    });
+</script>
+{% endblock %}

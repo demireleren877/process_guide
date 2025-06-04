@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}{{ super() }}{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+    .year-card {
+        transition: transform 0.2s;
+        border: none;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        height: 100%;
+        background-color: var(--bs-body-bg);
+    }
+
+    .year-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    }
+
+    .calendar-icon {
+        font-size: 2.5rem;
+        color: var(--bs-primary);
+        margin-bottom: 10px;
+    }
+
+    .process-count {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background-color: var(--bs-gray-200);
+        padding: 0.25rem 0.5rem;
+        border-radius: 20px;
+        font-size: 0.875rem;
+        color: var(--bs-body-color);
+    }
+
+    .header-section {
+        padding: 1.25rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .category-title {
+        font-size: 1.5rem;
+        font-weight: 500;
+        margin: 0;
+        line-height: 1.2;
+    }
+
+    [data-bs-theme="dark"] .header-section {
+        background-color: var(--bs-dark);
+    }
+
+    [data-bs-theme="dark"] .year-card {
+        background-color: var(--bs-dark);
+        border: 1px solid var(--bs-border-color);
+    }
+
+    [data-bs-theme="dark"] .process-count {
+        background-color: var(--bs-gray-800);
+        color: var(--bs-light);
+    }
+
+    [data-bs-theme="dark"] .card-title {
+        color: var(--bs-light);
+    }
+
+    [data-bs-theme="light"] .category-title {
+        color: var(--bs-gray-700) !important;
+    }
+
+    [data-bs-theme="dark"] .category-title {
+        color: var(--bs-gray-400) !important;
+    }
+
+    [data-bs-theme="light"] .header-section {
+        background-color: var(--bs-white);
+    }
+
+    [data-bs-theme="dark"] .card-text {
+        color: var(--bs-gray-400) !important;
+    }
+
+    [data-bs-theme="light"] .year-card {
+        background-color: var(--bs-white);
+    }
+
+    [data-bs-theme="light"] .card-title {
+        color: var(--bs-dark);
+    }
+
+    [data-bs-theme="light"] .card-text {
+        color: var(--bs-gray-600) !important;
+    }
+
+    [data-bs-theme="light"] .btn-outline-light {
+        color: var(--bs-gray-700) !important;
+        border-color: var(--bs-gray-600) !important;
+        background-color: var(--bs-gray-100) !important;
+    }
+
+    [data-bs-theme="light"] .btn-outline-light:hover {
+        color: var(--bs-white) !important;
+        border-color: var(--bs-white) !important;
+        background-color: var(--bs-gray-700) !important;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="header-section d-flex justify-content-between align-items-center mb-4">
+        {% if category.description %}
+        <h2 class="category-title">{{ category.description }}</h2>
+        {% else %}
+        <h2 class="category-title">{{ category.name }}</h2>
+        {% endif %}
+        <div>
+            <a href="{{ url_for('edit_category', category_id=category.id) }}" class="btn btn-outline-light me-2">
+                <i class="bi bi-pencil"></i> Kategoriyi Düzenle
+            </a>
+            <a href="{{ url_for('new_process') }}" class="btn btn-success">
+                <i class="bi bi-plus-lg"></i> Yeni Süreç
+            </a>
+        </div>
+    </div>
+
+    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for year in years %}
+        <div class="col">
+            <a href="{{ url_for('category_processes', category_id=category.id, year=year) }}"
+                class="text-decoration-none">
+                <div class="card year-card">
+                    <div class="card-body text-center position-relative">
+                        <span class="process-count text-muted">
+                            {{ processes_by_year[year] }} süreç
+                        </span>
+                        <i class="bi bi-calendar-fill calendar-icon"></i>
+                        <h5 class="card-title mb-2">{{ year }}</h5>
+                        <p class="card-text text-muted">{{ year }} yılına ait süreçler</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

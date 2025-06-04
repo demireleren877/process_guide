@@ -7,7 +7,7 @@
     <title>{% block title %}Süreç Yönetimi{% endblock %}</title>
     <script>
         // Tema tercihini hemen uygula
-        (function() {
+        (function () {
             const savedTheme = localStorage.getItem('theme') || 'light';
             document.documentElement.setAttribute('data-bs-theme', savedTheme);
         })();
@@ -27,12 +27,12 @@
             align-items: center;
             gap: 5px;
         }
-        
+
         /* Switch butonu geçiş animasyonunu kaldır */
         .form-check-input {
             transition: none !important;
         }
-        
+
         /* Mail durumu stilleri */
         .mail-status {
             display: inline-flex;
@@ -42,141 +42,133 @@
             font-size: 0.875rem;
             background: rgba(0, 0, 0, 0.1);
         }
-        
+
         .mail-status i {
             margin-right: 4px;
         }
-        
+
         .mail-status.has-reply {
             background-color: rgba(25, 135, 84, 0.1);
             color: #198754;
         }
-        
+
         .mail-status.no-reply {
             background-color: rgba(255, 193, 7, 0.1);
             color: #ffc107;
         }
-        
+
         /* Dark tema için özel stiller */
         [data-bs-theme="dark"] {
             color-scheme: dark;
         }
-        
+
         [data-bs-theme="dark"] body {
             background-color: #121212;
             color: #e0e0e0;
         }
-        
+
         [data-bs-theme="dark"] .navbar {
             background-color: #1a1a1a !important;
         }
-        
-        [data-bs-theme="dark"] .card {
-            background-color: #2d2d2d;
-            border-color: #404040;
-        }
-        
+
+
+
         [data-bs-theme="dark"] .modal-content {
             background-color: #2d2d2d;
             border-color: #404040;
             color: #e0e0e0;
         }
-        
+
         [data-bs-theme="dark"] .modal-header {
             border-bottom-color: #404040;
         }
-        
+
         [data-bs-theme="dark"] .modal-footer {
             border-top-color: #404040;
         }
-        
+
         [data-bs-theme="dark"] .table {
             color: #e0e0e0;
         }
-        
+
         [data-bs-theme="dark"] .table-hover tbody tr:hover {
             background-color: rgba(255, 255, 255, 0.075);
         }
-        
+
         [data-bs-theme="dark"] .form-control,
         [data-bs-theme="dark"] .form-select,
         [data-bs-theme="dark"] textarea {
-            background-color: #333;
             border-color: #404040;
             color: #e0e0e0;
         }
-        
+
         [data-bs-theme="dark"] .form-control:focus,
         [data-bs-theme="dark"] .form-select:focus,
         [data-bs-theme="dark"] textarea:focus {
-            background-color: #404040;
             border-color: #505050;
             color: #e0e0e0;
         }
-        
-        [data-bs-theme="dark"] .form-control::placeholder {
-            color: #888;
-        }
-        
+
+
         [data-bs-theme="dark"] .form-label {
             color: #e0e0e0;
         }
-        
+
         [data-bs-theme="dark"] .mail-variable-card {
-            background-color: #2d2d2d;
             border-color: #404040;
         }
-        
+
         [data-bs-theme="dark"] .mail-variable-card .card-header {
             background-color: #1a1a1a;
             border-bottom-color: #404040;
         }
-        
+
         [data-bs-theme="dark"] .mail-variable-card .card-body {
             background-color: #2d2d2d;
         }
-        
+
         [data-bs-theme="dark"] .variable-item {
             border-color: #404040;
         }
-        
+
         [data-bs-theme="dark"] .badge {
             background-color: #404040;
             color: #e0e0e0;
         }
-        
+
         [data-bs-theme="dark"] .btn-close {
             filter: invert(1) grayscale(100%) brightness(200%);
         }
-        
+
         [data-bs-theme="dark"] .mail-status {
             background: rgba(255, 255, 255, 0.1);
             color: #e0e0e0;
         }
-        
+
         [data-bs-theme="dark"] .mail-status.has-reply {
             background-color: rgba(25, 135, 84, 0.2);
             color: #28a745;
         }
-        
+
         [data-bs-theme="dark"] .mail-status.no-reply {
             background-color: rgba(255, 193, 7, 0.2);
             color: #ffd700;
         }
-        
+
         /* İşlem sonuçları için stiller */
-        #resultSuccess, #resultError {
+        #resultSuccess,
+        #resultError {
             padding: 15px;
             border-radius: 4px;
             margin-bottom: 15px;
         }
-        
+
         [data-bs-theme="dark"] #resultSuccess {
             background-color: rgba(25, 135, 84, 0.2);
             color: #28a745;
             border: 1px solid rgba(25, 135, 84, 0.3);
         }
-        
+
         [data-bs-theme="dark"] #resultError {
             background-color: rgba(220, 53, 69, 0.2);
             color: #dc3545;
@@ -238,11 +230,11 @@
         document.addEventListener('DOMContentLoaded', () => {
             const themeSwitch = document.getElementById('themeSwitch');
             const html = document.documentElement;
-            
+
             // Kaydedilmiş temayı yükle
             const savedTheme = localStorage.getItem('theme') || 'light';
             themeSwitch.checked = savedTheme === 'dark';
-            
+
             // Tema değiştirme olayını dinle
             themeSwitch.addEventListener('change', () => {
                 const newTheme = themeSwitch.checked ? 'dark' : 'light';

@@ -61,6 +61,13 @@ migrate = Migrate(app, db)
 ProcessExecutor.set_db_path(os.path.join(app.instance_path, 'processes.db'))
 
 
+class ProcessCategory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    processes = db.relationship('Process', backref='category', lazy=True)
+
 class Process(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
@@ -68,12 +75,10 @@ class Process(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)
     is_started = db.Column(db.Boolean, default=False)
     started_at = db.Column(db.DateTime)
-    version = db.Column(db.Integer, nullable=False, default=1)  # Versiyon kontrolü için
-    steps = db.relationship('Step', 
-    
-                          backref='process', 
-                          lazy=True, 
-                          cascade='all, delete-orphan')  
+    version = db.Column(db.Integer, nullable=False, default=1)
+    year = db.Column(db.Integer, nullable=False, default=lambda: datetime.now().year)
+    category_id = db.Column(db.Integer, db.ForeignKey('process_category.id', name='fk_process_category'), nullable=True)
+    steps = db.relationship('Step', backref='process', lazy=True, cascade='all, delete-orphan')
 
     def get_completion_percentage(self):
         all_steps = []
@@ -136,7 +141,8 @@ class Step(db.Model):
     process_id = db.Column(db.Integer, db.ForeignKey('process.id', ondelete='CASCADE'), nullable=False)
     responsible = db.Column(db.String(100))
     status = db.Column(db.String(20), default='not_started')
-    version = db.Column(db.Integer, nullable=False, default=1)  # Versiyon kontrolü için
+    version = db.Column(db.Integer, nullable=False, default=1)
+    deadline = db.Column(db.DateTime, nullable=True)
     dependencies = db.relationship('StepDependency', 
                                  foreign_keys='StepDependency.step_id',
                                  backref='dependent_step', 
@@ -251,8 +257,61 @@ class MailReply(db.Model):
 
 @app.route('/')
 def index():
-    processes = Process.query.all()
-    return render_template('index.html', processes=processes)
+    categories = ProcessCategory.query.all()
+    uncategorized_count = Process.query.filter_by(category_id=None).count()
+    return render_template('categories.html', 
+                         categories=categories,
+                         uncategorized_count=uncategorized_count)
+
+@app.route('/category/<int:category_id>')
+def category_years(category_id):
+    category = ProcessCategory.query.get_or_404(category_id)
+    processes = Process.query.filter_by(category_id=category_id).all()
+    years = sorted(set(process.year for process in processes))
+    processes_by_year = {}
+    for year in years:
+        processes_by_year[year] = len([p for p in processes if p.year == year])
+    return render_template('category_years.html', 
+                         category=category,
+                         years=years,
+                         processes_by_year=processes_by_year)
+
+@app.route('/category/<int:category_id>/<int:year>')
+def category_processes(category_id, year):
+    category = ProcessCategory.query.get_or_404(category_id)
+    processes = Process.query.filter_by(category_id=category_id, year=year).all()
+    all_categories = ProcessCategory.query.all()
+    current_year = datetime.now().year
+    return render_template('process_list.html', 
+                         category=category,
+                         year=year,
+                         processes=processes,
+                         is_uncategorized=False,
+                         all_categories=all_categories,
+                         current_year=current_year)
+
+@app.route('/uncategorized')
+def uncategorized_years():
+    processes = Process.query.filter_by(category_id=None).all()
+    years = sorted(set(process.year for process in processes))
+    processes_by_year = {}
+    for year in years:
+        processes_by_year[year] = len([p for p in processes if p.year == year])
+    return render_template('uncategorized_years.html', 
+                         years=years,
+                         processes_by_year=processes_by_year)
+
+@app.route('/uncategorized/<int:year>')
+def uncategorized_processes(year):
+    processes = Process.query.filter_by(category_id=None, year=year).all()
+    all_categories = ProcessCategory.query.all()
+    current_year = datetime.now().year
+    return render_template('process_list.html', 
+                         year=year,
+                         processes=processes,
+                         is_uncategorized=True,
+                         all_categories=all_categories,
+                         current_year=current_year)
 
 @app.route('/process/<int:process_id>')
 def process_detail(process_id):
@@ -265,7 +324,10 @@ def process_detail(process_id):
     for main_step in main_steps:
         organized_steps.append(main_step)
         organized_steps.extend(get_substeps_recursive(main_step.id))    
-    return render_template('process_detail.html', process=process, steps=organized_steps)
+    return render_template('process_detail.html', 
+                         process=process, 
+                         steps=organized_steps,
+                         now=datetime.now())
 
 def get_substeps_recursive(parent_id):
     substeps = []
@@ -279,14 +341,34 @@ def get_substeps_recursive(parent_id):
 def new_process():
     if request.method == 'POST':
         name = request.form.get('name')
-        description = request.form.get('description')        
-        if name:
-            process = Process(name=name, description=description)
-            db.session.add(process)
-            db.session.commit()
-            return redirect(url_for('process_detail', process_id=process.id))    
-    return render_template('new_process.html')
-
+        description = request.form.get('description')
+        category_id = request.form.get('category_id')
+        year = request.form.get('year', type=int)
+        
+        if name and year:
+            try:
+                process = Process(
+                    name=name,
+                    description=description,
+                    category_id=category_id if category_id else None,
+                    year=year
+                )
+                db.session.add(process)
+                db.session.commit()
+                
+                if category_id:
+                    return redirect(url_for('category_processes', category_id=category_id, year=year))
+                else:
+                    return redirect(url_for('uncategorized_processes', year=year))
+            except Exception as e:
+                db.session.rollback()
+                flash(f'Süreç oluşturulurken hata oluştu: {str(e)}', 'error')
+    
+    categories = ProcessCategory.query.all()
+    current_year = datetime.now().year
+    return render_template('new_process.html', 
+                         categories=categories,
+                         current_year=current_year)
 
 @app.route('/process/<int:process_id>/delete', methods=['POST'])
 def delete_process(process_id):
@@ -873,6 +955,8 @@ def copy_process(process_id):
         new_process = Process(
             name=f"{original_process.name} (Kopya)",
             description=original_process.description,
+            category_id=original_process.category_id,
+            year=original_process.year,
             is_started=False,
             started_at=None
         )
@@ -894,7 +978,14 @@ def copy_process(process_id):
             )
         ).delete(synchronize_session=False)        
         db.session.commit()
-        flash('Süreç başarıyla kopyalandı', 'success')        
+        flash('Süreç başarıyla kopyalandı', 'success')
+
+        # Kopyalama sonrası yönlendirme
+        if new_process.category_id:
+            return redirect(url_for('category_processes', category_id=new_process.category_id, year=new_process.year))
+        else:
+            return redirect(url_for('uncategorized_processes', year=new_process.year))
+                
     except Exception as e:
         db.session.rollback()
         flash(f'Süreç kopyalanırken hata oluştu: {str(e)}', 'error')    
@@ -1060,11 +1151,28 @@ def get_process_flowchart(process_id):
 
 @app.route('/api/calendar/completed-steps')
 def get_completed_steps():
-    # Sadece parent_id'si None olan (ana) adımları al
-    steps = Step.query.filter(
-        Step.completed_at.isnot(None),
-        Step.parent_id.is_(None)  # Ana adımları filtrele
-    ).all()
+    # URL'den sorumlu kişi ve kategori parametrelerini al
+    responsible = request.args.get('responsible', None)
+    category_id = request.args.get('category_id', None)
+    
+    # Base query - hem tamamlanmış hem de deadline'ı olan adımları al
+    query = Step.query.filter(
+        Step.parent_id.is_(None),  # Ana adımları filtrele
+        db.or_(
+            Step.completed_at.isnot(None),  # Tamamlanmış adımlar
+            Step.deadline.isnot(None)  # Deadline'ı olan adımlar
+        )
+    ).join(Process, Step.process_id == Process.id)  # Process tablosuyla join
+    
+    # Eğer sorumlu kişi filtresi varsa, query'e ekle
+    if responsible:
+        query = query.filter(Step.responsible == responsible)
+        
+    # Eğer kategori filtresi varsa, query'e ekle
+    if category_id:
+        query = query.filter(Process.category_id == category_id)
+    
+    steps = query.all()
     
     events = []
     
@@ -1072,28 +1180,94 @@ def get_completed_steps():
         # Ana adımın adını ve süreç adını birleştir
         step_title = f"{step.process.name} - {step.name}"
         
-        # Tamamlanma zamanını kullan
-        completion_time = step.completed_at
-        
-        events.append({
-            'id': step.id,
-            'title': step_title,
-            'start': completion_time.strftime('%Y-%m-%dT%H:%M:%S'),  # ISO format without timezone
-            'display': 'block',  # Blok görünüm kullan
-            'allDay': False,
-            'textColor': 'white',
-            'extendedProps': {
-                'processId': step.process_id,
-                'processName': step.process.name,
-                'stepType': step.type,
-                'description': step.description or '',
-                'responsible': step.responsible or '',
-                'completionTime': completion_time.strftime('%H:%M'),
-                'completionDate': completion_time.strftime('%d.%m.%Y %H:%M')
+        # Eğer adım tamamlanmışsa
+        if step.completed_at:
+            completion_time = step.completed_at
+            event = {
+                'id': step.id,
+                'title': step_title,
+                'start': completion_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                'display': 'block',
+                'allDay': False,
+                'backgroundColor': 'rgba(40, 167, 69, 0.3)',  # Yeşil renk yarı saydam
+                'borderColor': '#28a745',  # Yeşil renk
+                'classNames': ['completed-event', 'striped-background'],
+                'extendedProps': {
+                    'processId': step.process_id,
+                    'processName': step.process.name,
+                    'stepType': step.type,
+                    'description': step.description or '',
+                    'responsible': step.responsible or '',
+                    'completionTime': completion_time.strftime('%H:%M'),
+                    'completionDate': completion_time.strftime('%d.%m.%Y %H:%M'),
+                    'status': 'completed',
+                    'categoryId': step.process.category_id,
+                    'categoryName': step.process.category.name if step.process.category else 'Kategorisiz'
+                }
             }
-        })
+            events.append(event)
+        
+        # Eğer deadline varsa ve adım tamamlanmamışsa
+        if step.deadline and not step.completed_at:
+            now = datetime.now()
+            is_overdue = step.deadline < now
+            
+            event = {
+                'id': step.id,
+                'title': step_title,
+                'start': step.deadline.strftime('%Y-%m-%dT%H:%M:%S'),
+                'display': 'block',
+                'allDay': False,
+                'backgroundColor': 'rgba(220, 53, 69, 0.3)' if is_overdue else 'rgba(255, 193, 7, 0.3)',  # Gecikmiş: kırmızı, Normal: sarı
+                'borderColor': '#dc3545' if is_overdue else '#ffc107',  # Gecikmiş: kırmızı, Normal: sarı
+                'classNames': ['deadline-event', 'striped-background', 'overdue-event' if is_overdue else ''],
+                'extendedProps': {
+                    'processId': step.process_id,
+                    'processName': step.process.name,
+                    'stepType': step.type,
+                    'description': step.description or '',
+                    'responsible': step.responsible or '',
+                    'deadline': step.deadline.strftime('%d.%m.%Y %H:%M'),
+                    'status': 'overdue' if is_overdue else 'pending',
+                    'categoryId': step.process.category_id,
+                    'categoryName': step.process.category.name if step.process.category else 'Kategorisiz'
+                }
+            }
+            events.append(event)
     
     return jsonify(events)
+
+@app.route('/step/<int:step_id>/update_deadline', methods=['POST'])
+def update_step_deadline(step_id):
+    step = Step.query.get_or_404(step_id)
+    deadline_str = request.form.get('deadline')
+    
+    try:
+        if deadline_str:
+            deadline = datetime.strptime(deadline_str, '%Y-%m-%dT%H:%M')
+            step.deadline = deadline
+        else:
+            step.deadline = None
+            
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/calendar/responsibles')
+def get_responsibles():
+    # Tüm sorumlu kişileri al (tekrarsız)
+    responsibles = db.session.query(Step.responsible)\
+        .filter(Step.responsible.isnot(None))\
+        .distinct()\
+        .order_by(Step.responsible)\
+        .all()
+    
+    # Liste formatına çevir
+    responsible_list = [r[0] for r in responsibles if r[0]]  # Boş değerleri filtrele
+    
+    return jsonify(responsible_list)
 
 @app.route('/process/calendar')
 def process_calendar():
@@ -1152,6 +1326,117 @@ def process_stats(process_id):
         timeline_dates=timeline_dates,
         timeline_counts=timeline_counts
     )
+
+@app.route('/category/new', methods=['GET', 'POST'])
+def new_category():
+    if request.method == 'POST':
+        name = request.form.get('name')
+        description = request.form.get('description')
+        
+        if name:
+            category = ProcessCategory(name=name, description=description)
+            db.session.add(category)
+            db.session.commit()
+            flash('Kategori başarıyla oluşturuldu', 'success')
+            return redirect(url_for('index'))
+    
+    return render_template('new_category.html')
+
+@app.route('/category/<int:category_id>/edit', methods=['GET', 'POST'])
+def edit_category(category_id):
+    category = ProcessCategory.query.get_or_404(category_id)
+    
+    if request.method == 'POST':
+        name = request.form.get('name')
+        description = request.form.get('description')
+        
+        if name:
+            category.name = name
+            category.description = description
+            db.session.commit()
+            flash('Kategori başarıyla güncellendi', 'success')
+            return redirect(url_for('category_years', category_id=category_id))
+    
+    return render_template('edit_category.html', category=category)
+
+@app.route('/process/<int:process_id>/update_category', methods=['POST'])
+def update_process_category(process_id):
+    process = Process.query.get_or_404(process_id)
+    old_category_id = process.category_id
+    old_year = process.year
+    
+    category_id = request.form.get('category_id')
+    year = request.form.get('year', type=int)
+    
+    try:
+        process.category_id = category_id if category_id else None
+        if year:
+            process.year = year
+        db.session.commit()
+        flash('Süreç başarıyla güncellendi', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Süreç güncellenirken hata oluştu: {str(e)}', 'error')
+    
+    # Eğer kategori değiştiyse, yeni kategoriye yönlendir
+    if category_id != old_category_id or year != old_year:
+        if category_id:
+            return redirect(url_for('category_processes', category_id=category_id, year=year))
+        else:
+            return redirect(url_for('uncategorized_processes', year=year))
+    
+    # Kategori değişmediyse mevcut sayfada kal
+    if process.category_id:
+        return redirect(url_for('category_processes', category_id=process.category_id, year=process.year))
+    else:
+        return redirect(url_for('uncategorized_processes', year=process.year))
+
+@app.route('/api/calendar/categories')
+def get_calendar_categories():
+    # Tüm kategorileri al
+    categories = ProcessCategory.query.order_by(ProcessCategory.name).all()
+    
+    # Liste formatına çevir
+    category_list = [{'id': cat.id, 'name': cat.name} for cat in categories]
+    
+    # Kategorisiz seçeneğini ekle
+    category_list.insert(0, {'id': '', 'name': 'Kategorisiz'})
+    
+    return jsonify(category_list)
+
+@app.route('/api/responsible/<responsible>/steps')
+def get_responsible_steps(responsible):
+    # Sorumluya ait tüm adımları al
+    steps = Step.query.filter_by(responsible=responsible).all()
+    
+    # İstatistikleri hesapla
+    total_steps = len(steps)
+    completed_steps = sum(1 for step in steps if step.status == 'done')
+    completion_rate = int((completed_steps / total_steps * 100) if total_steps > 0 else 0)
+    
+    # Adım detaylarını hazırla
+    step_details = []
+    for step in steps:
+        process = Process.query.get(step.process_id)
+        step_details.append({
+            'id': step.id,
+            'process_id': step.process_id,  # Süreç ID'sini ekle
+            'name': step.name,
+            'status': step.status,
+            'process_name': process.name if process else 'Bilinmeyen Süreç',
+            'completed_at': step.completed_at.strftime('%d.%m.%Y %H:%M') if step.completed_at else None
+        })
+    
+    # Adımları duruma göre sırala: done > in_progress > waiting > not_started
+    status_order = {'done': 0, 'in_progress': 1, 'waiting': 2, 'not_started': 3}
+    step_details.sort(key=lambda x: (status_order[x['status']], x['name']))
+    
+    return jsonify({
+        'total_steps': total_steps,
+        'completed_steps': completed_steps,
+        'completion_rate': completion_rate,
+        'steps': step_details
+    })
 
 if __name__ == '__main__':
     with app.app_context():
