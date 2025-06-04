@@ -1536,6 +1536,97 @@ def convert_to_oracle_column_name(column_name):
     
     return column
 
+@app.route('/api/excel/columns', methods=['POST'])
+def get_excel_columns():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'Dosya yüklenmedi'})
+        
+        file = request.files['file']
+        sheet_name = request.form.get('sheet_name')
+        
+        if not all([file, sheet_name]):
+            return jsonify({'success': False, 'error': 'Tüm alanlar gerekli'})
+        
+        # Excel dosyasını oku
+        df = pd.read_excel(file, sheet_name=sheet_name)
+        
+        # Sütun isimlerini ve veri tiplerini al
+        columns = df.columns.tolist()
+        column_types = {}
+        
+        for col in columns:
+            # Pandas veri tipini belirle
+            dtype = str(df[col].dtype)
+            if 'int' in dtype:
+                column_types[col] = 'INTEGER'
+            elif 'float' in dtype:
+                column_types[col] = 'NUMBER'
+            elif 'datetime' in dtype:
+                column_types[col] = 'DATE'
+            else:
+                # Metin alanları için maksimum uzunluğu belirle
+                max_length = df[col].astype(str).str.len().max()
+                column_types[col] = f'VARCHAR2({max_length + 50})'
+        
+        return jsonify({
+            'success': True,
+            'columns': columns,
+            'column_types': column_types
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/oracle/columns/<table_name>')
+def get_oracle_columns(table_name):
+    try:
+        # Oracle bağlantı bilgilerini al
+        username = app.config.get('ORACLE_USERNAME')
+        password = app.config.get('ORACLE_PASSWORD')
+        dsn = app.config.get('ORACLE_DSN')
+        
+        # Oracle'a bağlan
+        connection = oracledb.connect(user=username, password=password, dsn=dsn)
+        cursor = connection.cursor()
+        
+        # Tablo yapısını al
+        cursor.execute("""
+            SELECT column_name, data_type, data_length, data_precision, data_scale
+            FROM user_tab_columns 
+            WHERE table_name = :1
+            ORDER BY column_id
+        """, [table_name])
+        
+        columns = []
+        for row in cursor.fetchall():
+            col_name, data_type, data_length, data_precision, data_scale = row
+            
+            # Veri tipini formatla
+            if data_type == 'NUMBER':
+                if data_scale == 0:
+                    col_type = 'INTEGER'
+                else:
+                    col_type = f'NUMBER({data_precision},{data_scale})'
+            elif data_type == 'VARCHAR2':
+                col_type = f'VARCHAR2({data_length})'
+            else:
+                col_type = data_type
+            
+            columns.append({
+                'name': col_name,
+                'type': col_type
+            })
+        
+        cursor.close()
+        connection.close()
+        
+        return jsonify({
+            'success': True,
+            'columns': columns
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/api/excel/import', methods=['POST'])
 def import_excel():
     try:
@@ -1545,6 +1636,7 @@ def import_excel():
         file = request.files['file']
         sheet_name = request.form.get('sheet_name')
         create_new_table = request.form.get('create_new_table') == 'true'
+        column_mappings = json.loads(request.form.get('column_mappings', '[]'))
         
         if not all([file, sheet_name]):
             return jsonify({'success': False, 'error': 'Tüm alanlar gerekli'})
@@ -1561,12 +1653,6 @@ def import_excel():
         connection = oracledb.connect(user=username, password=password, dsn=dsn)
         cursor = connection.cursor()
         
-        # Excel sütunlarını Oracle uyumlu formata dönüştür
-        column_mapping = {col: convert_to_oracle_column_name(col) for col in df.columns}
-        
-        # Sütun isimlerini güncelle
-        df = df.rename(columns=column_mapping)
-        
         if create_new_table:
             # Yeni tablo adını al
             new_table_name = request.form.get('new_table_name')
@@ -1576,23 +1662,10 @@ def import_excel():
             # Tablo adını Oracle uyumlu formata dönüştür
             new_table_name = convert_to_oracle_column_name(new_table_name)
             
-            # Veri tiplerini belirle
-            column_types = []
-            for col in df.columns:
-                # Pandas veri tipini Oracle veri tipine dönüştür
-                if pd.api.types.is_numeric_dtype(df[col]):
-                    column_types.append('NUMBER')
-                elif pd.api.types.is_datetime64_any_dtype(df[col]):
-                    column_types.append('DATE')
-                else:
-                    # Metin alanları için maksimum uzunluğu belirle
-                    max_length = df[col].astype(str).str.len().max()
-                    column_types.append(f'VARCHAR2({max_length + 50})')  # Biraz ekstra alan bırak
-            
             # CREATE TABLE sorgusunu oluştur
             create_table_query = f"""
             CREATE TABLE {new_table_name} (
-                {', '.join(f'"{col}" {dtype}' for col, dtype in zip(df.columns, column_types))}
+                {', '.join(f'"{mapping["oracle_column"]}" {mapping["oracle_type"]}' for mapping in column_mappings)}
             )
             """
             
@@ -1613,28 +1686,39 @@ def import_excel():
             cursor.execute(f"SELECT column_name FROM user_tab_columns WHERE table_name = '{table_name}'")
             oracle_columns = [row[0] for row in cursor.fetchall()]
             
-            # Eşleşen sütunları bul
-            matching_columns = [col for col in df.columns if col in oracle_columns]
+            # Eşleşen sütunları kontrol et
+            mapping_columns = [mapping['oracle_column'] for mapping in column_mappings]
+            invalid_columns = [col for col in mapping_columns if col not in oracle_columns]
             
-            if not matching_columns:
+            if invalid_columns:
                 return jsonify({
                     'success': False,
-                    'error': 'Excel dosyasındaki sütunlar Oracle tablosundaki sütunlarla eşleşmiyor.'
+                    'error': f'Geçersiz sütun isimleri: {", ".join(invalid_columns)}'
                 })
-            
-            # Sadece eşleşen sütunları al
-            df = df[matching_columns]
         
         # Verileri Oracle'a aktar
         for _, row in df.iterrows():
-            values = [row[col] for col in df.columns]
-            placeholders = ','.join([':' + str(i+1) for i in range(len(df.columns))])
-            insert_query = f"INSERT INTO {table_name} ({','.join(f'"{col}"' for col in df.columns)}) VALUES ({placeholders})"
+            values = []
+            columns = []
+            
+            for mapping in column_mappings:
+                excel_col = mapping['excel_column']
+                oracle_col = mapping['oracle_column']
+                
+                if excel_col in df.columns:
+                    values.append(row[excel_col])
+                    columns.append(oracle_col)
+            
+            placeholders = ','.join([':' + str(i+1) for i in range(len(columns))])
+            insert_query = f"INSERT INTO {table_name} ({','.join(f'"{col}"' for col in columns)}) VALUES ({placeholders})"
             cursor.execute(insert_query, values)
         
         connection.commit()
         cursor.close()
         connection.close()
+        
+        # Sütun eşleştirme bilgilerini hazırla
+        column_mapping = {mapping['excel_column']: mapping['oracle_column'] for mapping in column_mappings}
         
         return jsonify({
             'success': True,
