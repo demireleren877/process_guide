@@ -1712,32 +1712,34 @@ def import_excel():
                 if excel_col in df.columns:
                     value = row[excel_col]
                     
-                    # Boş değerleri kontrol et
-                    if pd.isna(value):
-                        # Sayısal alanlar için 0, diğer alanlar için None kullan
+                    # Veri tipine göre dönüşüm yap
+                    try:
+                        if 'NUMBER' in oracle_type or 'INTEGER' in oracle_type or 'FLOAT' in oracle_type:
+                            # Sayısal alanlar için
+                            if pd.isna(value):
+                                value = 0
+                            else:
+                                value = float(value)
+                        elif 'DATE' in oracle_type or 'TIMESTAMP' in oracle_type:
+                            # Tarih alanları için
+                            if pd.isna(value):
+                                value = None
+                            elif isinstance(value, (pd.Timestamp, datetime)):
+                                value = value
+                            else:
+                                value = None
+                        else:
+                            # Karakter alanları için
+                            if pd.isna(value):
+                                value = None
+                            else:
+                                value = str(value)
+                    except (ValueError, TypeError):
+                        # Dönüşüm hatası durumunda
                         if 'NUMBER' in oracle_type or 'INTEGER' in oracle_type or 'FLOAT' in oracle_type:
                             value = 0
                         else:
                             value = None
-                    else:
-                        # Veri tipine göre dönüşüm yap
-                        try:
-                            if 'NUMBER' in oracle_type or 'INTEGER' in oracle_type or 'FLOAT' in oracle_type:
-                                value = float(value) if value else 0
-                            elif 'DATE' in oracle_type or 'TIMESTAMP' in oracle_type:
-                                if isinstance(value, (pd.Timestamp, datetime)):
-                                    value = value
-                                else:
-                                    value = None
-                            else:
-                                # Karakter tipi için string'e dönüştür
-                                value = str(value) if value else None
-                        except (ValueError, TypeError):
-                            # Dönüşüm başarısız olursa, sayısal alanlar için 0, diğer alanlar için None kullan
-                            if 'NUMBER' in oracle_type or 'INTEGER' in oracle_type or 'FLOAT' in oracle_type:
-                                value = 0
-                            else:
-                                value = None
                     
                     values.append(value)
                     columns.append(oracle_col)
