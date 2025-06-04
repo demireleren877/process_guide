@@ -60,21 +60,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const successAlert = document.getElementById('successAlert');
     const importButton = document.getElementById('importButton');
     
-    // Oracle tablolarını yükle
-    fetch('/api/oracle/tables')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                tableSelect.innerHTML = '<option value="">Tablo seçin</option>' +
-                    data.tables.map(table => `<option value="${table}">${table}</option>`).join('');
-            } else {
-                showError('Tablolar yüklenirken hata oluştu: ' + data.error);
-            }
-        })
-        .catch(error => {
-            showError('Tablolar yüklenirken hata oluştu: ' + error);
-        });
-    
     // Excel dosyası seçildiğinde
     fileInput.addEventListener('change', function() {
         if (this.files.length > 0) {
@@ -91,6 +76,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     sheetSelect.innerHTML = '<option value="">Sayfa seçin</option>' +
                         data.sheets.map(sheet => `<option value="${sheet}">${sheet}</option>`).join('');
                     sheetSelect.disabled = false;
+                    checkImportButtonState();
                 } else {
                     showError('Sayfalar yüklenirken hata oluştu: ' + data.error);
                 }
@@ -100,6 +86,35 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
     });
+    
+    // Sayfa veya tablo seçimi değiştiğinde buton durumunu kontrol et
+    sheetSelect.addEventListener('change', checkImportButtonState);
+    tableSelect.addEventListener('change', checkImportButtonState);
+
+    // İçe aktar butonunun durumunu kontrol eden fonksiyon
+    function checkImportButtonState() {
+        const hasFile = fileInput.files.length > 0;
+        const hasSheet = sheetSelect.value !== '';
+        const hasTable = tableSelect.value !== '';
+        
+        importButton.disabled = !(hasFile && hasSheet && hasTable);
+    }
+    
+    // Oracle tablolarını yükle
+    fetch('/api/oracle/tables')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                tableSelect.innerHTML = '<option value="">Tablo seçin</option>' +
+                    data.tables.map(table => `<option value="${table}">${table}</option>`).join('');
+                checkImportButtonState();
+            } else {
+                showError('Tablolar yüklenirken hata oluştu: ' + data.error);
+            }
+        })
+        .catch(error => {
+            showError('Tablolar yüklenirken hata oluştu: ' + error);
+        });
     
     // Form gönderildiğinde
     form.addEventListener('submit', function(e) {
