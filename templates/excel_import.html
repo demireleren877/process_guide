@@ -111,6 +111,33 @@ document.addEventListener('DOMContentLoaded', function() {
     let oracleColumns = [];
     let columnTypes = {};
     
+    // Excel dosyası seçildiğinde
+    fileInput.addEventListener('change', function() {
+        if (this.files.length > 0) {
+            const formData = new FormData();
+            formData.append('file', this.files[0]);
+            
+            fetch('/api/excel/sheets', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    sheetSelect.innerHTML = '<option value="">Sayfa seçin</option>' +
+                        data.sheets.map(sheet => `<option value="${sheet}">${sheet}</option>`).join('');
+                    sheetSelect.disabled = false;
+                    checkImportButtonState();
+                } else {
+                    showError('Sayfalar yüklenirken hata oluştu: ' + data.error);
+                }
+            })
+            .catch(error => {
+                showError('Sayfalar yüklenirken hata oluştu: ' + error);
+            });
+        }
+    });
+
     // Excel sayfası seçildiğinde sütun bilgilerini al
     sheetSelect.addEventListener('change', function() {
         if (this.value && fileInput.files.length > 0) {
