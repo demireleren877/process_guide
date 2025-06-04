@@ -111,55 +111,6 @@ document.addEventListener('DOMContentLoaded', function() {
     let oracleColumns = [];
     let columnTypes = {};
     
-    // Yeni tablo oluşturma seçeneği değiştiğinde
-    createNewTableCheckbox.addEventListener('change', function() {
-        if (this.checked) {
-            existingTableSection.style.display = 'none';
-            newTableSection.style.display = 'block';
-            tableSelect.disabled = true;
-            newTableNameInput.disabled = false;
-            // Yeni tablo seçildiğinde sütun eşleştirme tablosunu göster
-            if (excelColumns.length > 0) {
-                updateColumnMapping();
-            }
-        } else {
-            existingTableSection.style.display = 'block';
-            newTableSection.style.display = 'none';
-            tableSelect.disabled = false;
-            newTableNameInput.disabled = true;
-            // Sütun eşleştirme tablosunu gizle
-            columnMappingSection.style.display = 'none';
-        }
-        checkImportButtonState();
-    });
-    
-    // Excel dosyası seçildiğinde
-    fileInput.addEventListener('change', function() {
-        if (this.files.length > 0) {
-            const formData = new FormData();
-            formData.append('file', this.files[0]);
-            
-            fetch('/api/excel/sheets', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    sheetSelect.innerHTML = '<option value="">Sayfa seçin</option>' +
-                        data.sheets.map(sheet => `<option value="${sheet}">${sheet}</option>`).join('');
-                    sheetSelect.disabled = false;
-                    checkImportButtonState();
-                } else {
-                    showError('Sayfalar yüklenirken hata oluştu: ' + data.error);
-                }
-            })
-            .catch(error => {
-                showError('Sayfalar yüklenirken hata oluştu: ' + error);
-            });
-        }
-    });
-
     // Excel sayfası seçildiğinde sütun bilgilerini al
     sheetSelect.addEventListener('change', function() {
         if (this.value && fileInput.files.length > 0) {
@@ -188,6 +139,28 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // Yeni tablo oluşturma seçeneği değiştiğinde
+    createNewTableCheckbox.addEventListener('change', function() {
+        if (this.checked) {
+            existingTableSection.style.display = 'none';
+            newTableSection.style.display = 'block';
+            tableSelect.disabled = true;
+            newTableNameInput.disabled = false;
+            // Sütun eşleştirme tablosunu göster
+            if (excelColumns.length > 0) {
+                updateColumnMapping();
+            }
+        } else {
+            existingTableSection.style.display = 'block';
+            newTableSection.style.display = 'none';
+            tableSelect.disabled = false;
+            newTableNameInput.disabled = true;
+            // Sütun eşleştirme tablosunu gizle
+            columnMappingSection.style.display = 'none';
+        }
+        checkImportButtonState();
+    });
+
     // Oracle tablosu seçildiğinde sütun bilgilerini al
     tableSelect.addEventListener('change', function() {
         if (this.value) {
@@ -196,7 +169,10 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(data => {
                 if (data.success) {
                     oracleColumns = data.columns;
-                    updateColumnMapping();
+                    // Sütun eşleştirme tablosunu göster
+                    if (excelColumns.length > 0) {
+                        updateColumnMapping();
+                    }
                 } else {
                     showError('Oracle sütun bilgileri alınırken hata oluştu: ' + data.error);
                 }
@@ -209,6 +185,30 @@ document.addEventListener('DOMContentLoaded', function() {
             columnMappingSection.style.display = 'none';
         }
     });
+
+    // Veri tipi seçeneklerini güncelle
+    function getDataTypeOptions() {
+        return `
+            <optgroup label="Sayısal Tipler">
+                <option value="NUMBER">NUMBER</option>
+                <option value="INTEGER">INTEGER</option>
+                <option value="FLOAT">FLOAT</option>
+                <option value="DECIMAL">DECIMAL</option>
+            </optgroup>
+            <optgroup label="Karakter Tipleri">
+                <option value="NVARCHAR2(255)">NVARCHAR2(255)</option>
+                <option value="NVARCHAR2(500)">NVARCHAR2(500)</option>
+                <option value="NVARCHAR2(1000)">NVARCHAR2(1000)</option>
+                <option value="NCHAR(1)">NCHAR(1)</option>
+                <option value="NCHAR(10)">NCHAR(10)</option>
+                <option value="NCLOB">NCLOB</option>
+            </optgroup>
+            <optgroup label="Tarih Tipleri">
+                <option value="DATE">DATE</option>
+                <option value="TIMESTAMP">TIMESTAMP</option>
+            </optgroup>
+        `;
+    }
 
     // Sütun eşleştirme arayüzünü güncelle
     function updateColumnMapping() {
@@ -274,28 +274,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const typeCell = document.createElement('td');
                 const typeSelect = document.createElement('select');
                 typeSelect.className = 'form-select form-select-sm';
-                
-                // Tüm veri tipi seçeneklerini ekle
-                typeSelect.innerHTML = `
-                    <optgroup label="Sayısal Tipler">
-                        <option value="NUMBER">NUMBER</option>
-                        <option value="INTEGER">INTEGER</option>
-                        <option value="FLOAT">FLOAT</option>
-                        <option value="DECIMAL">DECIMAL</option>
-                    </optgroup>
-                    <optgroup label="Karakter Tipleri">
-                        <option value="NVARCHAR2(255)">NVARCHAR2(255)</option>
-                        <option value="NVARCHAR2(500)">NVARCHAR2(500)</option>
-                        <option value="NVARCHAR2(1000)">NVARCHAR2(1000)</option>
-                        <option value="NCHAR(1)">NCHAR(1)</option>
-                        <option value="NCHAR(10)">NCHAR(10)</option>
-                        <option value="NCLOB">NCLOB</option>
-                    </optgroup>
-                    <optgroup label="Tarih Tipleri">
-                        <option value="DATE">DATE</option>
-                        <option value="TIMESTAMP">TIMESTAMP</option>
-                    </optgroup>
-                `;
+                typeSelect.innerHTML = getDataTypeOptions();
                 
                 // Excel veri tipine göre varsayılan seçimi ayarla
                 const dataType = columnTypes[col]?.toLowerCase() || '';
@@ -455,7 +434,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 columnMappings.push({
                     excel_column: excelCol,
                     oracle_column: oracleCol,
-                    oracle_type: oracleType
+                    oracle_type: oracleType,
+                    handle_null: true // Boş hücreleri işle
                 });
                 
                 // Debug için konsola yazdır
