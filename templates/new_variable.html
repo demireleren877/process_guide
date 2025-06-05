@@ -36,6 +36,13 @@
                     <select class="form-select" id="var_type" name="var_type" required>
                         {% if is_mail_step %}
                         <option value="mail_config">Mail Konfigürasyonu</option>
+                        {% elif is_excel_import_step %}
+                        <option value="string">Metin</option>
+                        <option value="" disabled>Excel import için gerekli değişkenler:</option>
+                        <option value="string">file_path - Excel dosyasının yolu</option>
+                        <option value="string">sheet_name - Excel sayfasının adı</option>
+                        <option value="string">table_name - Hedef Oracle tablosunun adı</option>
+                        <option value="string">import_mode - İçe aktarma modu (append/replace)</option>
                         {% else %}
                         <option value="string">Metin</option>
                         <option value="number">Sayı</option>

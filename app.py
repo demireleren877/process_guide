@@ -490,7 +490,7 @@ def execute_step(step_id):
 @app.route('/step/<int:step_id>/variables/new', methods=['GET', 'POST'])
 def new_variable(step_id):
     step = Step.query.get_or_404(step_id)    
-    if step.type == 'main_step' or step.type not in ['python_script', 'sql_script', 'sql_procedure', 'mail']:
+    if step.type == 'main_step' or step.type not in ['python_script', 'sql_script', 'sql_procedure', 'mail', 'excel_import']:
         flash('Bu adım tipine değişken eklenemez.', 'error')
         return redirect(url_for('process_detail', process_id=step.process_id))    
     if request.method == 'POST':
@@ -528,10 +528,12 @@ def new_variable(step_id):
     if step.parent_id:
         parent_variables = StepVariable.query.filter_by(step_id=step.parent_id).all()    
     is_mail_step = step.type == 'mail'
+    is_excel_import_step = step.type == 'excel_import'
     return render_template('new_variable.html', 
                          step=step, 
                          parent_variables=parent_variables,
-                         is_mail_step=is_mail_step)
+                         is_mail_step=is_mail_step,
+                         is_excel_import_step=is_excel_import_step)
 
 
 @app.route('/variable/<int:variable_id>/update', methods=['POST'])
