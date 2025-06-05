@@ -32,6 +32,23 @@ ProcessExecutor.set_oracle_config(
 app.config['SQLALCHEMY_DATABASE_URI'] = 'oracle+cx_oracle://username:password@dsn'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# SQLAlchemy veritabanı nesnesi
+db = SQLAlchemy(app)
+
+# Import Process modeli
+class ImportProcess(db.Model):
+    __tablename__ = 'IMPORT_PROCESSES'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    process_name = db.Column(db.String(100), nullable=False)
+    file_path = db.Column(db.String(500), nullable=False)
+    sheet_name = db.Column(db.String(100), nullable=False)
+    target_table = db.Column(db.String(100), nullable=False)
+    column_mappings = db.Column(db.Text, nullable=False)  # JSON olarak saklanacak
+    import_mode = db.Column(db.String(20), nullable=False)  # 'append' veya 'replace'
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    last_used_at = db.Column(db.DateTime)
+
 @app.template_filter('from_json')
 def from_json(value):
     try:
@@ -62,7 +79,6 @@ def get_mail_replies(variable_id):
 os.makedirs(app.instance_path, exist_ok=True)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'processes.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 ProcessExecutor.set_db_path(os.path.join(app.instance_path, 'processes.db'))
 
@@ -1638,21 +1654,41 @@ def get_oracle_columns(table_name):
 @app.route('/api/excel/import', methods=['POST'])
 def import_excel():
     try:
-        file_input_mode = request.form.get('file_input_mode')
-        sheet_name = request.form.get('sheet_name')
-        create_new_table = request.form.get('create_new_table') == 'true'
-        column_mappings = json.loads(request.form.get('column_mappings', '[]'))
+        process_id = request.form.get('process_id')
+        if process_id:
+            # Kayıtlı süreci kullan
+            process = ImportProcess.query.get_or_404(process_id)
+            file_path = process.file_path
+            sheet_name = process.sheet_name
+            column_mappings = json.loads(process.column_mappings)
+            table_name = process.target_table
+            import_mode = process.import_mode
+            
+            # Son kullanım tarihini güncelle
+            update_process_last_used(process_id)
+        else:
+            # Normal import işlemi
+            file_input_mode = request.form.get('file_input_mode')
+            sheet_name = request.form.get('sheet_name')
+            create_new_table = request.form.get('create_new_table') == 'true'
+            column_mappings = json.loads(request.form.get('column_mappings', '[]'))
+            import_mode = request.form.get('import_mode', 'append')
+            
+            # Dosya kontrolü
+            if file_input_mode == 'select':
+                if 'file' not in request.files:
+                    return jsonify({'success': False, 'error': 'Dosya yüklenmedi'})
+                file = request.files['file']
+                df = pd.read_excel(file, sheet_name=sheet_name)
+            else:  # path mode
+                file_path = request.form.get('file_path')
+                if not file_path:
+                    return jsonify({'success': False, 'error': 'Dosya yolu belirtilmedi'})
+                if not os.path.exists(file_path):
+                    return jsonify({'success': False, 'error': 'Dosya bulunamadı'})
         
-        # Dosya kontrolü
-        if file_input_mode == 'select':
-            if 'file' not in request.files:
-                return jsonify({'success': False, 'error': 'Dosya yüklenmedi'})
-            file = request.files['file']
-            df = pd.read_excel(file, sheet_name=sheet_name)
-        else:  # path mode
-            file_path = request.form.get('file_path')
-            if not file_path:
-                return jsonify({'success': False, 'error': 'Dosya yolu belirtilmedi'})
+        # Excel dosyasını oku (process_id varsa file_path kullanılır)
+        if process_id or file_input_mode == 'path':
             if not os.path.exists(file_path):
                 return jsonify({'success': False, 'error': 'Dosya bulunamadı'})
             df = pd.read_excel(file_path, sheet_name=sheet_name)
@@ -1713,7 +1749,6 @@ def import_excel():
                 })
             
             # İçe aktarma modunu kontrol et
-            import_mode = request.form.get('import_mode', 'append')
             if import_mode == 'replace':
                 try:
                     # Tabloyu temizle
@@ -1798,6 +1833,95 @@ def import_excel():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+# Kayıtlı süreçleri listele
+@app.route('/api/import-processes', methods=['GET'])
+def get_import_processes():
+    try:
+        processes = ImportProcess.query.order_by(ImportProcess.last_used_at.desc().nulls_last()).all()
+        return jsonify({
+            'success': True,
+            'processes': [{
+                'id': p.id,
+                'process_name': p.process_name,
+                'file_path': p.file_path,
+                'sheet_name': p.sheet_name,
+                'target_table': p.target_table,
+                'import_mode': p.import_mode,
+                'created_at': p.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'last_used_at': p.last_used_at.strftime('%Y-%m-%d %H:%M:%S') if p.last_used_at else None
+            } for p in processes]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+# Süreç kaydet
+@app.route('/api/import-processes', methods=['POST'])
+def save_import_process():
+    try:
+        data = request.json
+        process = ImportProcess(
+            process_name=data['process_name'],
+            file_path=data['file_path'],
+            sheet_name=data['sheet_name'],
+            target_table=data['target_table'],
+            column_mappings=json.dumps(data['column_mappings']),
+            import_mode=data['import_mode']
+        )
+        db.session.add(process)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Süreç başarıyla kaydedildi',
+            'process_id': process.id
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+# Süreç detaylarını getir
+@app.route('/api/import-processes/<int:process_id>', methods=['GET'])
+def get_import_process(process_id):
+    try:
+        process = ImportProcess.query.get_or_404(process_id)
+        return jsonify({
+            'success': True,
+            'process': {
+                'id': process.id,
+                'process_name': process.process_name,
+                'file_path': process.file_path,
+                'sheet_name': process.sheet_name,
+                'target_table': process.target_table,
+                'column_mappings': json.loads(process.column_mappings),
+                'import_mode': process.import_mode
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+# Süreç sil
+@app.route('/api/import-processes/<int:process_id>', methods=['DELETE'])
+def delete_import_process(process_id):
+    try:
+        process = ImportProcess.query.get_or_404(process_id)
+        db.session.delete(process)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': 'Süreç başarıyla silindi'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+# Süreç kullanıldığında son kullanım tarihini güncelle
+def update_process_last_used(process_id):
+    try:
+        process = ImportProcess.query.get(process_id)
+        if process:
+            process.last_used_at = datetime.now()
+            db.session.commit()
+    except Exception as e:
+        print(f"Süreç güncelleme hatası: {e}")
 
 if __name__ == '__main__':
     with app.app_context():
