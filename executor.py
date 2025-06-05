@@ -7,6 +7,7 @@ import json
 from datetime import datetime
 import platform
 import logging
+import oracledb
 
 logger = logging.getLogger(__name__)
 
@@ -350,6 +351,110 @@ class ProcessExecutor:
                     except:
                         continue
             return result
+        elif step_type == 'excel_import':
+            variables = kwargs.get('variables', [])
+            if not variables:
+                return {
+                    'success': False,
+                    'output': None,
+                    'error': 'Excel import değişkenleri bulunamadı'
+                }
+            
+            excel_config = None
+            for var in variables:
+                if var.var_type == 'excel_config':
+                    try:
+                        excel_config = json.loads(var.default_value) if var.default_value else {}
+                        break
+                    except:
+                        continue
+            
+            if not excel_config:
+                return {
+                    'success': False,
+                    'output': None,
+                    'error': 'Excel import konfigürasyonu bulunamadı'
+                }
+            
+            try:
+                # Excel dosyasını oku
+                df = pd.read_excel(excel_config.get('file_path'), sheet_name=excel_config.get('sheet_name'))
+                
+                # Oracle bağlantısını oluştur
+                connection = oracledb.connect(
+                    user=ProcessExecutor._oracle_config['username'],
+                    password=ProcessExecutor._oracle_config['password'],
+                    dsn=ProcessExecutor._oracle_config['dsn']
+                )
+                cursor = connection.cursor()
+                
+                # Replace modunda ise tabloyu temizle
+                if excel_config.get('import_mode') == 'replace':
+                    cursor.execute(f"TRUNCATE TABLE {excel_config.get('table_name')}")
+                    connection.commit()
+                
+                # Verileri Oracle'a aktar
+                column_mappings = excel_config.get('column_mappings', [])
+                for _, row in df.iterrows():
+                    values = []
+                    columns = []
+                    
+                    for mapping in column_mappings:
+                        excel_col = mapping['excel_column']
+                        oracle_col = mapping['oracle_column']
+                        oracle_type = mapping['oracle_type'].upper()
+                        
+                        if excel_col in df.columns:
+                            value = row[excel_col]
+                            
+                            # Veri tipine göre dönüşüm yap
+                            try:
+                                if 'NUMBER' in oracle_type or 'INTEGER' in oracle_type or 'FLOAT' in oracle_type:
+                                    if pd.isna(value):
+                                        value = 0
+                                    else:
+                                        value = float(value)
+                                elif 'DATE' in oracle_type or 'TIMESTAMP' in oracle_type:
+                                    if pd.isna(value):
+                                        value = None
+                                    elif isinstance(value, (pd.Timestamp, datetime)):
+                                        value = value
+                                    else:
+                                        value = None
+                                else:
+                                    if pd.isna(value):
+                                        value = None
+                                    else:
+                                        value = str(value)
+                            except (ValueError, TypeError):
+                                if 'NUMBER' in oracle_type or 'INTEGER' in oracle_type or 'FLOAT' in oracle_type:
+                                    value = 0
+                                else:
+                                    value = None
+                            
+                            values.append(value)
+                            columns.append(oracle_col)
+                    
+                    placeholders = ','.join([':' + str(i+1) for i in range(len(columns))])
+                    insert_query = f"INSERT INTO {excel_config.get('table_name')} ({','.join(f'"{col}"' for col in columns)}) VALUES ({placeholders})"
+                    
+                    cursor.execute(insert_query, values)
+                
+                connection.commit()
+                cursor.close()
+                connection.close()
+                
+                return {
+                    'success': True,
+                    'output': f'{len(df)} satır başarıyla içe aktarıldı',
+                    'error': None
+                }
+            except Exception as e:
+                return {
+                    'success': False,
+                    'output': None,
+                    'error': str(e)
+                }
         else:
             return {
                 'success': True,

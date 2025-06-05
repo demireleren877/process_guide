@@ -45,6 +45,7 @@
                                 <option value="python_script">Python Script</option>
                                 <option value="sql_script">SQL Script</option>
                                 <option value="sql_procedure">SQL Prosedür</option>
+                                <option value="excel_import">Excel Import</option>
                             </select>
                         </div>
                         <div class="mb-3" id="file-path-container">
@@ -76,7 +77,7 @@
         const filePathContainer = document.getElementById('file-path-container');
         const procedureParamsContainer = document.getElementById('procedure-params-container');
         
-        if (this.value === 'main_step' || this.value === 'mail') {
+        if (this.value === 'main_step' || this.value === 'mail' || this.value === 'excel_import') {
             filePathContainer.style.display = 'none';
             procedureParamsContainer.style.display = 'none';
         } else if (this.value === 'sql_procedure') {
@@ -94,7 +95,7 @@
         const filePathContainer = document.getElementById('file-path-container');
         const procedureParamsContainer = document.getElementById('procedure-params-container');
         
-        if (stepType === 'main_step' || stepType === 'mail') {
+        if (stepType === 'main_step' || stepType === 'mail' || stepType === 'excel_import') {
             filePathContainer.style.display = 'none';
             procedureParamsContainer.style.display = 'none';
         } else if (stepType === 'sql_procedure') {

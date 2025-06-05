@@ -71,6 +71,7 @@
                             <option value="sql_script">SQL Script</option>
                             <option value="sql_procedure">SQL Prosedür</option>
                             <option value="mail">Mail</option>
+                            <option value="excel_import">Excel Import</option>
                         </select>
                         <label for="typeFilter">Adım Tipi</label>
                     </div>
@@ -609,6 +610,12 @@
     /* Mail badge */
     .badge.mail {
         background-color: #f59e0b !important;
+        color: white;
+    }
+
+    /* Excel Import badge */
+    .badge.excel-import {
+        background-color: #10b981 !important;
         color: white;
     }
 
@@ -1389,7 +1396,8 @@
             'python_script': 'Python Script',
             'sql_script': 'SQL Script',
             'sql_procedure': 'SQL Prosedür',
-            'mail': 'Mail'
+            'mail': 'Mail',
+            'excel_import': 'Excel Import'
         };
         return types[type] || type;
     }
