@@ -133,7 +133,7 @@
                                             value="{{ step.name }}" data-step-id="{{ step.id }}">
                                     </div>
                                     <div class="action-buttons d-flex gap-2 ms-auto">
-                                        {% if step.type in ['python_script', 'sql_script', 'mail', 'sql_procedure'] and
+                                        {% if step.type in ['python_script', 'sql_script', 'mail', 'sql_procedure', 'excel_import'] and
                                         step.type != 'main_step' %}
                                         <button type="button" class="btn btn-sm btn-outline-secondary show-variables"
                                             data-step-id="{{ step.id }}">
