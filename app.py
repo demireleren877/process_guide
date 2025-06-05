@@ -1661,14 +1661,6 @@ def get_oracle_columns(table_name):
 @app.route('/api/excel/import', methods=['POST'])
 def import_excel():
     try:
-        if 'file' not in request.files:
-            return jsonify({'success': False, 'error': 'Dosya yüklenmedi'})
-        
-        file = request.files['file']
-        sheet_name = request.form.get('sheet_name')
-        create_new_table = request.form.get('create_new_table') == 'true'
-        column_mappings = json.loads(request.form.get('column_mappings', '[]'))
-        
         # Konfigürasyonu kaydetme işlemi
         save_config = request.form.get('save_config') == 'true'
         if save_config:
@@ -1683,7 +1675,7 @@ def import_excel():
                 name=config_name,
                 description=config_description,
                 target_table=request.form.get('table_name'),
-                is_new_table=create_new_table,
+                is_new_table=request.form.get('create_new_table') == 'true',
                 new_table_name=request.form.get('new_table_name'),
                 column_mappings=request.form.get('column_mappings'),
                 import_mode=request.form.get('import_mode', 'append')
@@ -1692,11 +1684,23 @@ def import_excel():
             try:
                 db.session.add(new_config)
                 db.session.commit()
+                return jsonify({
+                    'success': True,
+                    'message': 'Konfigürasyon başarıyla kaydedildi'
+                })
             except Exception as e:
                 db.session.rollback()
                 return jsonify({'success': False, 'error': f'Konfigürasyon kaydedilirken hata: {str(e)}'})
 
-        # Mevcut import işlemine devam et...
+        # Import işlemi için dosya kontrolü
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'Dosya yüklenmedi'})
+        
+        file = request.files['file']
+        sheet_name = request.form.get('sheet_name')
+        create_new_table = request.form.get('create_new_table') == 'true'
+        column_mappings = json.loads(request.form.get('column_mappings', '[]'))
+        
         if not all([file, sheet_name]):
             return jsonify({'success': False, 'error': 'Tüm alanlar gerekli'})
         

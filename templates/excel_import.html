@@ -746,12 +746,53 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Form verilerini topla
-        const formData = new FormData(form);
+        const formData = new FormData();
         formData.append('save_config', 'true');
         formData.append('config_name', configName);
         formData.append('config_description', configDescription);
         
-        // Konfigürasyonu kaydet ve import işlemini başlat
+        // Mevcut form değerlerini ekle
+        formData.append('create_new_table', createNewTableCheckbox.checked);
+        if (createNewTableCheckbox.checked) {
+            formData.append('new_table_name', newTableNameInput.value);
+        } else {
+            formData.append('table_name', tableSelect.value);
+            formData.append('import_mode', document.querySelector('input[name="importMode"]:checked').value);
+        }
+        
+        // Sütun eşleştirmelerini ekle
+        const columnMappings = [];
+        const rows = columnMappingBody.getElementsByTagName('tr');
+        for (const row of rows) {
+            const includeCheckbox = row.cells[3].querySelector('input[type="checkbox"]');
+            if (includeCheckbox.checked) {
+                const excelCol = row.cells[0].textContent;
+                let oracleCol, oracleType;
+                
+                if (createNewTableCheckbox.checked) {
+                    oracleCol = row.cells[1].textContent;
+                    oracleType = row.cells[2].querySelector('select').value;
+                } else {
+                    const oracleCell = row.cells[1];
+                    if (oracleCell.querySelector('select')) {
+                        oracleCol = oracleCell.querySelector('select').value;
+                    } else {
+                        oracleCol = oracleCell.textContent;
+                    }
+                    oracleType = row.cells[2].querySelector('select').value;
+                }
+                
+                columnMappings.push({
+                    excel_column: excelCol,
+                    oracle_column: oracleCol,
+                    oracle_type: oracleType,
+                    handle_null: true
+                });
+            }
+        }
+        formData.append('column_mappings', JSON.stringify(columnMappings));
+        
+        // Konfigürasyonu kaydet
         fetch('/api/excel/import', {
             method: 'POST',
             body: formData
@@ -760,6 +801,8 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(data => {
             if (data.success) {
                 saveConfigModal.hide();
+                document.getElementById('configName').value = '';
+                document.getElementById('configDescription').value = '';
                 loadConfigs();  // Tabloyu yenile
                 showSuccess('Konfigürasyon başarıyla kaydedildi');
             } else {
