@@ -261,6 +261,34 @@ class MailReply(db.Model):
     original_subject = db.Column(db.String(255))
     is_reply = db.Column(db.Boolean, default=False)
 
+class ImportConfig(db.Model):
+    __tablename__ = 'import_configs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.String(500))
+    target_table = db.Column(db.String(100))
+    is_new_table = db.Column(db.Boolean, default=False)
+    new_table_name = db.Column(db.String(100))
+    column_mappings = db.Column(db.Text)  # JSON string
+    import_mode = db.Column(db.String(20), default='append')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'target_table': self.target_table,
+            'is_new_table': self.is_new_table,
+            'new_table_name': self.new_table_name,
+            'column_mappings': json.loads(self.column_mappings) if self.column_mappings else [],
+            'import_mode': self.import_mode,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
 @app.route('/')
 def index():
     categories = ProcessCategory.query.all()
@@ -1641,6 +1669,34 @@ def import_excel():
         create_new_table = request.form.get('create_new_table') == 'true'
         column_mappings = json.loads(request.form.get('column_mappings', '[]'))
         
+        # Konfigürasyonu kaydetme işlemi
+        save_config = request.form.get('save_config') == 'true'
+        if save_config:
+            config_name = request.form.get('config_name')
+            config_description = request.form.get('config_description', '')
+            
+            if not config_name:
+                return jsonify({'success': False, 'error': 'Konfigürasyon adı gerekli'})
+            
+            # Yeni konfigürasyon oluştur
+            new_config = ImportConfig(
+                name=config_name,
+                description=config_description,
+                target_table=request.form.get('table_name'),
+                is_new_table=create_new_table,
+                new_table_name=request.form.get('new_table_name'),
+                column_mappings=request.form.get('column_mappings'),
+                import_mode=request.form.get('import_mode', 'append')
+            )
+            
+            try:
+                db.session.add(new_config)
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                return jsonify({'success': False, 'error': f'Konfigürasyon kaydedilirken hata: {str(e)}'})
+
+        # Mevcut import işlemine devam et...
         if not all([file, sheet_name]):
             return jsonify({'success': False, 'error': 'Tüm alanlar gerekli'})
         
@@ -1784,6 +1840,45 @@ def import_excel():
             'column_mapping': column_mapping
         })
     except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/import-configs', methods=['GET'])
+def get_import_configs():
+    """Kaydedilmiş import konfigürasyonlarını listele"""
+    try:
+        configs = ImportConfig.query.order_by(ImportConfig.created_at.desc()).all()
+        return jsonify({
+            'success': True,
+            'configs': [config.to_dict() for config in configs]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/import-configs/<int:config_id>', methods=['GET'])
+def get_import_config(config_id):
+    """Belirli bir import konfigürasyonunu getir"""
+    try:
+        config = ImportConfig.query.get_or_404(config_id)
+        return jsonify({
+            'success': True,
+            'config': config.to_dict()
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/import-configs/<int:config_id>', methods=['DELETE'])
+def delete_import_config(config_id):
+    """Bir import konfigürasyonunu sil"""
+    try:
+        config = ImportConfig.query.get_or_404(config_id)
+        db.session.delete(config)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': 'Konfigürasyon başarıyla silindi'
+        })
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'success': False, 'error': str(e)})
 
 if __name__ == '__main__':

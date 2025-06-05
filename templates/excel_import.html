@@ -94,12 +94,73 @@
                         <div class="alert alert-danger" id="errorAlert" style="display: none;"></div>
                         <div class="alert alert-success" id="successAlert" style="display: none;"></div>
                         
-                        <button type="submit" class="btn btn-primary" id="importButton" disabled>
-                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display: none;"></span>
-                            İçe Aktar
-                        </button>
+                        <div class="row mb-3">
+                            <div class="col">
+                                <button type="submit" class="btn btn-primary" id="importButton" disabled>
+                                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display: none;"></span>
+                                    İçe Aktar
+                                </button>
+                                
+                                <button type="button" class="btn btn-secondary" id="saveConfigButton" disabled>
+                                    <i class="fas fa-save"></i> Konfigürasyonu Kaydet
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Kaydedilmiş Konfigürasyonlar -->
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <h5 class="mb-0">Kaydedilmiş Konfigürasyonlar</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-hover" id="configsTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Ad</th>
+                                                <th>Açıklama</th>
+                                                <th>Hedef Tablo</th>
+                                                <th>Oluşturulma Tarihi</th>
+                                                <th>İşlemler</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- Konfigürasyonlar dinamik olarak yüklenecek -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
                     </form>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Konfigürasyon Kaydetme Modal -->
+<div class="modal fade" id="saveConfigModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Konfigürasyonu Kaydet</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="saveConfigForm">
+                    <div class="mb-3">
+                        <label for="configName" class="form-label">Konfigürasyon Adı</label>
+                        <input type="text" class="form-control" id="configName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="configDescription" class="form-label">Açıklama</label>
+                        <textarea class="form-control" id="configDescription" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                <button type="button" class="btn btn-primary" id="saveConfigConfirm">Kaydet</button>
             </div>
         </div>
     </div>
@@ -122,6 +183,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const errorAlert = document.getElementById('errorAlert');
     const successAlert = document.getElementById('successAlert');
     const importButton = document.getElementById('importButton');
+    const saveConfigButton = document.getElementById('saveConfigButton');
+    const saveConfigModal = new bootstrap.Modal(document.getElementById('saveConfigModal'));
+    const saveConfigForm = document.getElementById('saveConfigForm');
+    const saveConfigConfirm = document.getElementById('saveConfigConfirm');
+    const configsTable = document.getElementById('configsTable').getElementsByTagName('tbody')[0];
     
     let excelColumns = [];
     let oracleColumns = [];
@@ -561,6 +627,170 @@ document.addEventListener('DOMContentLoaded', function() {
         successAlert.style.display = 'block';
         errorAlert.style.display = 'none';
     }
+
+    // Konfigürasyonları yükle
+    function loadConfigs() {
+        fetch('/api/import-configs')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    configsTable.innerHTML = '';
+                    data.configs.forEach(config => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${config.name}</td>
+                            <td>${config.description || ''}</td>
+                            <td>${config.is_new_table ? config.new_table_name : config.target_table}</td>
+                            <td>${new Date(config.created_at).toLocaleString()}</td>
+                            <td>
+                                <button class="btn btn-sm btn-primary load-config" data-id="${config.id}">
+                                    <i class="fas fa-upload"></i> Yükle
+                                </button>
+                                <button class="btn btn-sm btn-danger delete-config" data-id="${config.id}">
+                                    <i class="fas fa-trash"></i> Sil
+                                </button>
+                            </td>
+                        `;
+                        configsTable.appendChild(row);
+                    });
+                    
+                    // Yükleme butonlarına event listener ekle
+                    document.querySelectorAll('.load-config').forEach(button => {
+                        button.addEventListener('click', function() {
+                            loadConfig(this.dataset.id);
+                        });
+                    });
+                    
+                    // Silme butonlarına event listener ekle
+                    document.querySelectorAll('.delete-config').forEach(button => {
+                        button.addEventListener('click', function() {
+                            deleteConfig(this.dataset.id);
+                        });
+                    });
+                }
+            })
+            .catch(error => {
+                showError('Konfigürasyonlar yüklenirken hata oluştu');
+            });
+    }
+    
+    // Konfigürasyon yükleme
+    function loadConfig(configId) {
+        fetch(`/api/import-configs/${configId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const config = data.config;
+                    
+                    // Form alanlarını doldur
+                    createNewTableCheckbox.checked = config.is_new_table;
+                    if (config.is_new_table) {
+                        newTableNameInput.value = config.new_table_name;
+                        existingTableSection.style.display = 'none';
+                        newTableSection.style.display = 'block';
+                    } else {
+                        tableSelect.value = config.target_table;
+                        existingTableSection.style.display = 'block';
+                        newTableSection.style.display = 'none';
+                        
+                        // Import modunu ayarla
+                        document.querySelector(`input[name="importMode"][value="${config.import_mode}"]`).checked = true;
+                    }
+                    
+                    // Sütun eşleştirmelerini yükle
+                    if (config.column_mappings.length > 0) {
+                        columnMappings = config.column_mappings;
+                        updateColumnMapping();
+                    }
+                    
+                    showSuccess('Konfigürasyon başarıyla yüklendi');
+                }
+            })
+            .catch(error => {
+                showError('Konfigürasyon yüklenirken hata oluştu');
+            });
+    }
+    
+    // Konfigürasyon silme
+    function deleteConfig(configId) {
+        if (confirm('Bu konfigürasyonu silmek istediğinizden emin misiniz?')) {
+            fetch(`/api/import-configs/${configId}`, {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    loadConfigs();  // Tabloyu yenile
+                    showSuccess('Konfigürasyon başarıyla silindi');
+                }
+            })
+            .catch(error => {
+                showError('Konfigürasyon silinirken hata oluştu');
+            });
+        }
+    }
+    
+    // Kaydet butonuna tıklandığında
+    saveConfigButton.addEventListener('click', function() {
+        saveConfigModal.show();
+    });
+    
+    // Kaydetme işlemi onaylandığında
+    saveConfigConfirm.addEventListener('click', function() {
+        const configName = document.getElementById('configName').value;
+        const configDescription = document.getElementById('configDescription').value;
+        
+        if (!configName) {
+            showError('Konfigürasyon adı gerekli');
+            return;
+        }
+        
+        // Form verilerini topla
+        const formData = new FormData(form);
+        formData.append('save_config', 'true');
+        formData.append('config_name', configName);
+        formData.append('config_description', configDescription);
+        
+        // Konfigürasyonu kaydet ve import işlemini başlat
+        fetch('/api/excel/import', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                saveConfigModal.hide();
+                loadConfigs();  // Tabloyu yenile
+                showSuccess('Konfigürasyon başarıyla kaydedildi');
+            } else {
+                showError(data.error);
+            }
+        })
+        .catch(error => {
+            showError('Konfigürasyon kaydedilirken hata oluştu');
+        });
+    });
+    
+    // Sayfa yüklendiğinde konfigürasyonları getir
+    loadConfigs();
+    
+    // Form alanları değiştiğinde kaydet butonunun durumunu güncelle
+    function checkSaveButtonState() {
+        const hasFile = fileInput.files.length > 0;
+        const hasSheet = sheetSelect.value !== '';
+        const isNewTable = createNewTableCheckbox.checked;
+        const hasTable = isNewTable ? 
+            newTableNameInput.value.trim() !== '' : 
+            tableSelect.value !== '';
+        
+        saveConfigButton.disabled = !(hasFile && hasSheet && hasTable);
+    }
+    
+    // Event listener'ları ekle
+    sheetSelect.addEventListener('change', checkSaveButtonState);
+    tableSelect.addEventListener('change', checkSaveButtonState);
+    newTableNameInput.addEventListener('input', checkSaveButtonState);
+    createNewTableCheckbox.addEventListener('change', checkSaveButtonState);
 });
 </script>
 {% endblock %} 
