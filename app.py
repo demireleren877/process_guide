@@ -261,45 +261,6 @@ class MailReply(db.Model):
     original_subject = db.Column(db.String(255))
     is_reply = db.Column(db.Boolean, default=False)
 
-class ImportConfig(db.Model):
-    __tablename__ = 'import_configs'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.String(500))
-    
-    # Excel ayarları
-    sheet_name = db.Column(db.String(100))
-    
-    # Tablo ayarları
-    is_new_table = db.Column(db.Boolean, default=False)
-    target_table = db.Column(db.String(100))
-    new_table_name = db.Column(db.String(100))
-    import_mode = db.Column(db.String(20), default='append')
-    
-    # Sütun eşleştirmeleri
-    excel_columns = db.Column(db.Text)  # JSON string [{"name": "Col1", "type": "text"}, ...]
-    column_mappings = db.Column(db.Text)  # JSON string [{"excel_column": "Col1", "oracle_column": "COL1", "oracle_type": "VARCHAR2"}, ...]
-    
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'name': self.name,
-            'description': self.description,
-            'sheet_name': self.sheet_name,
-            'is_new_table': self.is_new_table,
-            'target_table': self.target_table,
-            'new_table_name': self.new_table_name,
-            'import_mode': self.import_mode,
-            'excel_columns': json.loads(self.excel_columns) if self.excel_columns else [],
-            'column_mappings': json.loads(self.column_mappings) if self.column_mappings else [],
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
-
 @app.route('/')
 def index():
     categories = ProcessCategory.query.all()
@@ -1518,20 +1479,22 @@ def get_oracle_tables():
 @app.route('/api/excel/sheets', methods=['POST'])
 def get_excel_sheets():
     try:
-        if 'file' not in request.files:
-            return jsonify({'success': False, 'error': 'Dosya yüklenmedi'})
+        file_input_mode = request.form.get('file_input_mode')
         
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'success': False, 'error': 'Dosya seçilmedi'})
+        if file_input_mode == 'select':
+            if 'file' not in request.files:
+                return jsonify({'success': False, 'error': 'Dosya yüklenmedi'})
+            file = request.files['file']
+            df = pd.ExcelFile(file)
+        else:  # path mode
+            file_path = request.form.get('file_path')
+            if not file_path:
+                return jsonify({'success': False, 'error': 'Dosya yolu belirtilmedi'})
+            if not os.path.exists(file_path):
+                return jsonify({'success': False, 'error': 'Dosya bulunamadı'})
+            df = pd.ExcelFile(file_path)
         
-        if not file.filename.endswith(('.xlsx', '.xls')):
-            return jsonify({'success': False, 'error': 'Sadece Excel dosyaları (.xlsx, .xls) yüklenebilir'})
-        
-        # Excel dosyasını oku
-        excel_file = pd.ExcelFile(file)
-        sheets = excel_file.sheet_names
-        
+        sheets = df.sheet_names
         return jsonify({'success': True, 'sheets': sheets})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -1672,64 +1635,27 @@ def get_oracle_columns(table_name):
 @app.route('/api/excel/import', methods=['POST'])
 def import_excel():
     try:
-        # Konfigürasyonu kaydetme işlemi
-        save_config = request.form.get('save_config') == 'true'
-        if save_config:
-            config_name = request.form.get('config_name')
-            config_description = request.form.get('config_description', '')
-            
-            if not config_name:
-                return jsonify({'success': False, 'error': 'Konfigürasyon adı gerekli'})
-            
-            # Form verilerini al
-            is_new_table = request.form.get('create_new_table') == 'true'
-            sheet_name = request.form.get('sheet_name')
-            excel_columns = request.form.get('excel_columns', '[]')  # Excel sütunları ve tipleri
-            column_mappings = request.form.get('column_mappings', '[]')  # Sütun eşleştirmeleri
-            
-            # Yeni konfigürasyon oluştur
-            new_config = ImportConfig(
-                name=config_name,
-                description=config_description,
-                sheet_name=sheet_name,
-                is_new_table=is_new_table,
-                target_table=request.form.get('table_name') if not is_new_table else None,
-                new_table_name=request.form.get('new_table_name') if is_new_table else None,
-                import_mode=request.form.get('import_mode', 'append'),
-                excel_columns=excel_columns,
-                column_mappings=column_mappings
-            )
-            
-            try:
-                db.session.add(new_config)
-                db.session.commit()
-                return jsonify({
-                    'success': True,
-                    'message': 'Konfigürasyon başarıyla kaydedildi'
-                })
-            except Exception as e:
-                db.session.rollback()
-                return jsonify({'success': False, 'error': f'Konfigürasyon kaydedilirken hata: {str(e)}'})
-
-        # Excel dosyasını al
-        file_input_type = request.form.get('file_input_type')
-        if file_input_type == 'upload':
-            if 'file' not in request.files:
-                return jsonify({'success': False, 'error': 'Dosya yüklenmedi'})
-            file = request.files['file']
-            df = pd.read_excel(file, sheet_name=request.form.get('sheet_name'))
-        else:  # file_input_type == 'path'
-            file_path = request.form.get('file_path')
-            if not file_path or not os.path.exists(file_path):
-                return jsonify({'success': False, 'error': 'Geçerli bir dosya yolu gerekli'})
-            df = pd.read_excel(file_path, sheet_name=request.form.get('sheet_name'))
-        
+        file_input_mode = request.form.get('file_input_mode')
         sheet_name = request.form.get('sheet_name')
         create_new_table = request.form.get('create_new_table') == 'true'
         column_mappings = json.loads(request.form.get('column_mappings', '[]'))
         
+        # Dosya kontrolü
+        if file_input_mode == 'select':
+            if 'file' not in request.files:
+                return jsonify({'success': False, 'error': 'Dosya yüklenmedi'})
+            file = request.files['file']
+            df = pd.read_excel(file, sheet_name=sheet_name)
+        else:  # path mode
+            file_path = request.form.get('file_path')
+            if not file_path:
+                return jsonify({'success': False, 'error': 'Dosya yolu belirtilmedi'})
+            if not os.path.exists(file_path):
+                return jsonify({'success': False, 'error': 'Dosya bulunamadı'})
+            df = pd.read_excel(file_path, sheet_name=sheet_name)
+        
         if not sheet_name:
-            return jsonify({'success': False, 'error': 'Excel sayfası seçilmedi'})
+            return jsonify({'success': False, 'error': 'Sayfa adı gerekli'})
         
         # Oracle bağlantı bilgilerini al
         username = app.config.get('ORACLE_USERNAME')
@@ -1866,108 +1792,6 @@ def import_excel():
             'message': f'{len(df)} satır başarıyla içe aktarıldı' + 
                       (f' ve {table_name} tablosu oluşturuldu' if create_new_table else ''),
             'column_mapping': column_mapping
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/import-configs', methods=['GET'])
-def get_import_configs():
-    """Kaydedilmiş import konfigürasyonlarını listele"""
-    try:
-        configs = ImportConfig.query.order_by(ImportConfig.created_at.desc()).all()
-        return jsonify({
-            'success': True,
-            'configs': [config.to_dict() for config in configs]
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/import-configs/<int:config_id>', methods=['GET'])
-def get_import_config(config_id):
-    """Belirli bir import konfigürasyonunu getir"""
-    try:
-        config = ImportConfig.query.get_or_404(config_id)
-        return jsonify({
-            'success': True,
-            'config': config.to_dict()
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/import-configs/<int:config_id>', methods=['DELETE'])
-def delete_import_config(config_id):
-    """Bir import konfigürasyonunu sil"""
-    try:
-        config = ImportConfig.query.get_or_404(config_id)
-        db.session.delete(config)
-        db.session.commit()
-        return jsonify({
-            'success': True,
-            'message': 'Konfigürasyon başarıyla silindi'
-        })
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/excel/sheets-from-path', methods=['POST'])
-def get_sheets_from_path():
-    try:
-        file_path = request.form.get('file_path')
-        if not file_path:
-            return jsonify({'success': False, 'error': 'Dosya yolu gerekli'})
-        
-        # Dosya yolunu kontrol et
-        if not os.path.exists(file_path):
-            return jsonify({'success': False, 'error': 'Dosya bulunamadı'})
-        
-        # Excel dosyasını oku
-        try:
-            excel_file = pd.ExcelFile(file_path)
-            sheets = excel_file.sheet_names
-            return jsonify({'success': True, 'sheets': sheets})
-        except Exception as e:
-            return jsonify({'success': False, 'error': f'Excel dosyası okunamadı: {str(e)}'})
-            
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/excel/columns-from-path', methods=['POST'])
-def get_columns_from_path():
-    try:
-        file_path = request.form.get('file_path')
-        sheet_name = request.form.get('sheet_name')
-        
-        if not all([file_path, sheet_name]):
-            return jsonify({'success': False, 'error': 'Tüm alanlar gerekli'})
-        
-        if not os.path.exists(file_path):
-            return jsonify({'success': False, 'error': 'Dosya bulunamadı'})
-        
-        # Excel dosyasını oku
-        df = pd.read_excel(file_path, sheet_name=sheet_name)
-        
-        # Sütun isimlerini ve veri tiplerini al
-        columns = df.columns.tolist()
-        column_types = {}
-        
-        for col in columns:
-            # Pandas veri tipini belirle
-            dtype = str(df[col].dtype)
-            if 'int' in dtype:
-                column_types[col] = 'INTEGER'
-            elif 'float' in dtype:
-                column_types[col] = 'NUMBER'
-            elif 'datetime' in dtype:
-                column_types[col] = 'DATE'
-            else:
-                # Metin alanları için maksimum uzunluğu belirle
-                max_length = df[col].astype(str).str.len().max()
-                column_types[col] = f'VARCHAR2({max_length + 50})'
-        
-        return jsonify({
-            'success': True,
-            'columns': columns,
-            'column_types': column_types
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
