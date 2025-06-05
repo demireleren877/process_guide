@@ -1044,9 +1044,23 @@
 
             try {
                 if (stepType === 'excel_import') {
-                    // Excel import modalını aç
+                    // Excel import modalını aç ve JavaScript'i lazy load et
                     const modal = new bootstrap.Modal(document.getElementById('excelImportModal'));
-                    modal.show();
+                    
+                    // Excel import JavaScript'ini yükle
+                    if (!window.excelImportLoaded) {
+                        const script = document.createElement('script');
+                        script.src = '/static/js/excel_import.js';
+                        script.onload = () => {
+                            window.excelImportLoaded = true;
+                            window.initExcelImport();
+                            modal.show();
+                        };
+                        document.head.appendChild(script);
+                    } else {
+                        modal.show();
+                    }
+                    
                     button.disabled = false;
                     return;
                 }
