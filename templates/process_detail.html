@@ -451,6 +451,21 @@
         </div>
     </div>
 </div>
+
+<!-- Excel Import Modal -->
+<div class="modal fade" id="excelImportModal" tabindex="-1" aria-labelledby="excelImportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="excelImportModalLabel">Excel'den Oracle'a Veri Aktarımı</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+            </div>
+            <div class="modal-body">
+                <iframe id="excelImportFrame" src="" style="width: 100%; height: 80vh; border: none;"></iframe>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -935,6 +950,16 @@
             button.disabled = true;
 
             try {
+                if (stepType === 'excel_import') {
+                    // Excel import modalını aç
+                    const modal = new bootstrap.Modal(document.getElementById('excelImportModal'));
+                    const iframe = document.getElementById('excelImportFrame');
+                    iframe.src = '/excel-import';
+                    modal.show();
+                    button.disabled = false;
+                    return;
+                }
+
                 const response = await fetch(`/step/${stepId}/execute`, {
                     method: 'POST'
                 });
