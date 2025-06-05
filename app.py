@@ -1544,35 +1544,38 @@ def convert_to_oracle_column_name(column_name):
 @app.route('/api/excel/columns', methods=['POST'])
 def get_excel_columns():
     try:
-        if 'file' not in request.files:
-            return jsonify({'success': False, 'error': 'Dosya yüklenmedi'})
-        
-        file = request.files['file']
+        file_input_mode = request.form.get('file_input_mode')
         sheet_name = request.form.get('sheet_name')
         
-        if not all([file, sheet_name]):
-            return jsonify({'success': False, 'error': 'Tüm alanlar gerekli'})
-        
+        if not sheet_name:
+            return jsonify({'success': False, 'error': 'Sayfa adı gerekli'})
+            
         # Excel dosyasını oku
-        df = pd.read_excel(file, sheet_name=sheet_name)
+        if file_input_mode == 'select':
+            if 'file' not in request.files:
+                return jsonify({'success': False, 'error': 'Dosya yüklenmedi'})
+            file = request.files['file']
+            df = pd.read_excel(file, sheet_name=sheet_name)
+        else:  # path mode
+            file_path = request.form.get('file_path')
+            if not file_path:
+                return jsonify({'success': False, 'error': 'Dosya yolu belirtilmedi'})
+            if not os.path.exists(file_path):
+                return jsonify({'success': False, 'error': 'Dosya bulunamadı'})
+            df = pd.read_excel(file_path, sheet_name=sheet_name)
         
-        # Sütun isimlerini ve veri tiplerini al
+        # Sütun bilgilerini hazırla
         columns = df.columns.tolist()
         column_types = {}
         
         for col in columns:
-            # Pandas veri tipini belirle
             dtype = str(df[col].dtype)
-            if 'int' in dtype:
-                column_types[col] = 'INTEGER'
-            elif 'float' in dtype:
-                column_types[col] = 'NUMBER'
+            if 'int' in dtype or 'float' in dtype:
+                column_types[col] = 'number'
             elif 'datetime' in dtype:
-                column_types[col] = 'DATE'
+                column_types[col] = 'date'
             else:
-                # Metin alanları için maksimum uzunluğu belirle
-                max_length = df[col].astype(str).str.len().max()
-                column_types[col] = f'VARCHAR2({max_length + 50})'
+                column_types[col] = 'string'
         
         return jsonify({
             'success': True,

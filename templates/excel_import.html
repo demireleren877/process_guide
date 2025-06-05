@@ -230,9 +230,24 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Excel sayfası seçildiğinde sütun bilgilerini al
     sheetSelect.addEventListener('change', function() {
-        if (this.value && fileInput.files.length > 0) {
-            const formData = new FormData();
+        const fileInputMode = document.querySelector('input[name="fileInputMode"]:checked').value;
+        const formData = new FormData();
+        
+        if (fileInputMode === 'select' && fileInput.files.length > 0) {
             formData.append('file', fileInput.files[0]);
+            formData.append('file_input_mode', 'select');
+        } else if (fileInputMode === 'path') {
+            const filePath = document.getElementById('excelFilePath').value.trim();
+            if (!filePath) {
+                return;
+            }
+            formData.append('file_path', filePath);
+            formData.append('file_input_mode', 'path');
+        } else {
+            return;
+        }
+        
+        if (this.value) {
             formData.append('sheet_name', this.value);
             
             fetch('/api/excel/columns', {
@@ -246,6 +261,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     columnTypes = data.column_types;
                     // Sütun eşleştirme tablosunu gizle
                     columnMappingSection.style.display = 'none';
+                    
+                    // Eğer tablo seçiliyse sütun eşleştirmesini güncelle
+                    if (!createNewTableCheckbox.checked && tableSelect.value) {
+                        updateColumnMapping();
+                    }
                 } else {
                     showError('Sütun bilgileri alınırken hata oluştu: ' + data.error);
                 }
@@ -254,6 +274,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 showError('Sütun bilgileri alınırken hata oluştu: ' + error);
             });
         }
+        
+        checkImportButtonState();
     });
 
     // Yeni tablo oluşturma seçeneği değiştiğinde
@@ -301,6 +323,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Tablo seçimi kaldırıldığında sütun eşleştirme tablosunu gizle
             columnMappingSection.style.display = 'none';
         }
+        checkImportButtonState();
     });
 
     // Veri tipi seçeneklerini güncelle
@@ -473,21 +496,37 @@ document.addEventListener('DOMContentLoaded', function() {
         return hash;
     }
     
-    // Sayfa veya tablo seçimi değiştiğinde buton durumunu kontrol et
-    sheetSelect.addEventListener('change', checkImportButtonState);
-    tableSelect.addEventListener('change', checkImportButtonState);
-    newTableNameInput.addEventListener('input', checkImportButtonState);
-
     // İçe aktar butonunun durumunu kontrol eden fonksiyon
     function checkImportButtonState() {
-        const hasFile = fileInput.files.length > 0;
+        const fileInputMode = document.querySelector('input[name="fileInputMode"]:checked').value;
+        const hasFile = fileInputMode === 'select' ? fileInput.files.length > 0 : 
+                       document.getElementById('excelFilePath').value.trim() !== '';
         const hasSheet = sheetSelect.value !== '';
         const isNewTable = createNewTableCheckbox.checked;
         const hasTable = isNewTable ? 
             newTableNameInput.value.trim() !== '' : 
             tableSelect.value !== '';
         
-        importButton.disabled = !(hasFile && hasSheet && hasTable);
+        // Sütun eşleştirmelerini kontrol et
+        let hasValidColumnMappings = true;
+        if (!isNewTable && columnMappingBody.children.length > 0) {
+            const rows = columnMappingBody.getElementsByTagName('tr');
+            for (const row of rows) {
+                const includeCheckbox = row.cells[3].querySelector('input[type="checkbox"]');
+                if (includeCheckbox.checked) {
+                    const oracleCell = row.cells[1];
+                    if (oracleCell.querySelector('select')) {
+                        const oracleSelect = oracleCell.querySelector('select');
+                        if (!oracleSelect.value) {
+                            hasValidColumnMappings = false;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        importButton.disabled = !(hasFile && hasSheet && hasTable && hasValidColumnMappings);
     }
     
     // Oracle tablolarını yükle
