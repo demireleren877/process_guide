@@ -11,6 +11,7 @@ import re
 import pandas as pd
 import oracledb
 from werkzeug.utils import secure_filename
+from sqlalchemy import inspect
 
 app = Flask(__name__)
 CORS(app)
@@ -29,7 +30,9 @@ ProcessExecutor.set_oracle_config(
     dsn="your_dsn"
 )
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'oracle+cx_oracle://username:password@dsn'
+# SQLite veritabanı ayarları
+os.makedirs(app.instance_path, exist_ok=True)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'processes.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 @app.template_filter('from_json')
@@ -59,9 +62,6 @@ def get_mail_replies(variable_id):
         is_reply=True
     ).order_by(MailReply.received_at.asc()).all()
 
-os.makedirs(app.instance_path, exist_ok=True)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.instance_path, 'processes.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 ProcessExecutor.set_db_path(os.path.join(app.instance_path, 'processes.db'))
@@ -1549,7 +1549,7 @@ def get_excel_columns():
         
         if not sheet_name:
             return jsonify({'success': False, 'error': 'Sayfa adı gerekli'})
-            
+        
         # Excel dosyasını oku
         if file_input_mode == 'select':
             if 'file' not in request.files:
@@ -1724,7 +1724,7 @@ def import_excel():
                     return jsonify({
                         'success': False,
                         'error': f'Tablo temizlenirken hata: {error.message}'
-                    })
+                })
         
         # Verileri Oracle'a aktar
         for _, row in df.iterrows():
@@ -1772,7 +1772,8 @@ def import_excel():
                     columns.append(oracle_col)
             
             placeholders = ','.join([':' + str(i+1) for i in range(len(columns))])
-            insert_query = f"INSERT INTO {table_name} ({','.join(f'"{col}"' for col in columns)}) VALUES ({placeholders})"
+            quoted_columns = [f'"{col}"' for col in columns]
+            insert_query = f"INSERT INTO {table_name} ({','.join(quoted_columns)}) VALUES ({placeholders})"
             
             try:
                 cursor.execute(insert_query, values)
@@ -1801,6 +1802,7 @@ def import_excel():
 
 # Import Process modeli
 class ImportProcess(db.Model):
+    __tablename__ = 'import_process'  # Tablo adını açıkça belirt
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     file_path = db.Column(db.String(500), nullable=False)
@@ -1825,6 +1827,19 @@ class ImportProcess(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_used_at': self.last_used_at.isoformat() if self.last_used_at else None
         }
+
+# Veritabanını güncelle
+def create_import_process_table():
+    with app.app_context():
+        inspector = inspect(db.engine)
+        # Tablo zaten varsa oluşturmayı atla
+        if not inspector.has_table('import_process'):
+            db.create_all()
+            print("import_process tablosu oluşturuldu")
+        else:
+            print("import_process tablosu zaten mevcut")
+
+create_import_process_table()
 
 with app.app_context():
     db.create_all()
@@ -1947,7 +1962,8 @@ def execute_import_process(process_id):
                     columns.append(oracle_col)
             
             placeholders = ','.join([':' + str(i+1) for i in range(len(columns))])
-            insert_query = f"INSERT INTO {process.table_name} ({','.join(f'"{col}"' for col in columns)}) VALUES ({placeholders})"
+            quoted_columns = [f'"{col}"' for col in columns]
+            insert_query = f"INSERT INTO {process.table_name} ({','.join(quoted_columns)}) VALUES ({placeholders})"
             
             try:
                 cursor.execute(insert_query, values)
