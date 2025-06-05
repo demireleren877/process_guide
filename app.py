@@ -1640,7 +1640,6 @@ def import_excel():
         sheet_name = request.form.get('sheet_name')
         create_new_table = request.form.get('create_new_table') == 'true'
         column_mappings = json.loads(request.form.get('column_mappings', '[]'))
-        step_id = request.form.get('step_id')  # Excel import adımının ID'si
         
         if not all([file, sheet_name]):
             return jsonify({'success': False, 'error': 'Tüm alanlar gerekli'})
@@ -1777,14 +1776,6 @@ def import_excel():
         
         # Sütun eşleştirme bilgilerini hazırla
         column_mapping = {mapping['excel_column']: mapping['oracle_column'] for mapping in column_mappings}
-        
-        # Eğer bir adım ID'si varsa, adımı tamamlandı olarak işaretle
-        if step_id:
-            step = Step.query.get(step_id)
-            if step:
-                step.status = 'done'
-                step.completed_at = datetime.now()
-                db.session.commit()
         
         return jsonify({
             'success': True,

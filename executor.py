@@ -316,13 +316,6 @@ class ProcessExecutor:
             return ProcessExecutor.execute_sql_script(file_path)
         elif step_type == 'sql_procedure':
             return ProcessExecutor.execute_sql_script(file_path, is_procedure=True)
-        elif step_type == 'excel_import':
-            # Excel import adımını çalıştır
-            return {
-                'success': True,
-                'output': 'Excel import sayfasına yönlendiriliyorsunuz...',
-                'redirect_url': '/excel-import'
-            }
         elif step_type == 'mail':
             variables = kwargs.get('variables', [])
             if not variables:

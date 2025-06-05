@@ -446,13 +446,6 @@ document.addEventListener('DOMContentLoaded', function() {
         formData.append('file', fileInput.files[0]);
         formData.append('sheet_name', sheetSelect.value);
         
-        // URL'den step_id parametresini al
-        const urlParams = new URLSearchParams(window.location.search);
-        const stepId = urlParams.get('step_id');
-        if (stepId) {
-            formData.append('step_id', stepId);
-        }
-        
         // Sütun eşleştirme bilgilerini topla
         const columnMappings = [];
         const rows = columnMappingBody.getElementsByTagName('tr');
