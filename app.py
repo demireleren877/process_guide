@@ -32,6 +32,10 @@ ProcessExecutor.set_oracle_config(
 app.config['SQLALCHEMY_DATABASE_URI'] = 'oracle+cx_oracle://username:password@dsn'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# SQLite veritabanı ayarları
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///import_templates.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 @app.template_filter('from_json')
 def from_json(value):
     try:
@@ -260,6 +264,20 @@ class MailReply(db.Model):
     received_at = db.Column(db.DateTime, default=datetime.now)
     original_subject = db.Column(db.String(255))
     is_reply = db.Column(db.Boolean, default=False)
+
+# Import şablonları için model
+class ImportTemplate(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    file_input_mode = db.Column(db.String(10), nullable=False)  # 'select' veya 'path'
+    file_path = db.Column(db.String(500))  # Dosya yolu modu için
+    sheet_name = db.Column(db.String(100), nullable=False)
+    create_new_table = db.Column(db.Boolean, default=False)
+    table_name = db.Column(db.String(100), nullable=False)
+    import_mode = db.Column(db.String(10), default='append')  # 'append' veya 'replace'
+    column_mappings = db.Column(db.Text, nullable=False)  # JSON olarak saklanacak
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_used_at = db.Column(db.DateTime)
 
 @app.route('/')
 def index():
@@ -1795,6 +1813,77 @@ def import_excel():
             'message': f'{len(df)} satır başarıyla içe aktarıldı' + 
                       (f' ve {table_name} tablosu oluşturuldu' if create_new_table else ''),
             'column_mapping': column_mapping
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/import-templates', methods=['GET'])
+def get_import_templates():
+    try:
+        templates = ImportTemplate.query.order_by(ImportTemplate.name).all()
+        return jsonify({
+            'success': True,
+            'templates': [{
+                'id': t.id,
+                'name': t.name,
+                'file_input_mode': t.file_input_mode,
+                'file_path': t.file_path,
+                'sheet_name': t.sheet_name,
+                'create_new_table': t.create_new_table,
+                'table_name': t.table_name,
+                'import_mode': t.import_mode,
+                'column_mappings': json.loads(t.column_mappings),
+                'created_at': t.created_at.isoformat() if t.created_at else None,
+                'last_used_at': t.last_used_at.isoformat() if t.last_used_at else None
+            } for t in templates]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/import-templates', methods=['POST'])
+def save_import_template():
+    try:
+        data = request.json
+        template = ImportTemplate(
+            name=data['name'],
+            file_input_mode=data['file_input_mode'],
+            file_path=data.get('file_path'),
+            sheet_name=data['sheet_name'],
+            create_new_table=data['create_new_table'],
+            table_name=data['table_name'],
+            import_mode=data.get('import_mode', 'append'),
+            column_mappings=json.dumps(data['column_mappings'])
+        )
+        db.session.add(template)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Import şablonu başarıyla kaydedildi',
+            'template_id': template.id
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/import-templates/<int:template_id>', methods=['PUT'])
+def update_last_used(template_id):
+    try:
+        template = ImportTemplate.query.get_or_404(template_id)
+        template.last_used_at = datetime.utcnow()
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/import-templates/<int:template_id>', methods=['DELETE'])
+def delete_import_template(template_id):
+    try:
+        template = ImportTemplate.query.get_or_404(template_id)
+        db.session.delete(template)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': 'Import şablonu başarıyla silindi'
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})

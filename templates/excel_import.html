@@ -9,6 +9,19 @@
                     <h4 class="mb-0">Excel'den Oracle'a Veri Aktarımı</h4>
                 </div>
                 <div class="card-body">
+                    <!-- Kayıtlı İmport Şablonları -->
+                    <div class="mb-4">
+                        <label class="form-label">Kayıtlı İmport Şablonları</label>
+                        <div class="d-flex gap-2">
+                            <select class="form-select" id="importTemplateSelect">
+                                <option value="">Yeni import işlemi</option>
+                            </select>
+                            <button type="button" class="btn btn-danger" id="deleteTemplateBtn" style="display: none;">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+
                     <form id="excelImportForm" enctype="multipart/form-data" novalidate>
                         <div class="mb-3">
                             <label class="form-label">Excel Dosyası Seçimi</label>
@@ -110,6 +123,18 @@
                             <div id="previewContent"></div>
                         </div>
                         
+                        <div class="mt-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="saveAsTemplate">
+                                <label class="form-check-label" for="saveAsTemplate">
+                                    Bu import ayarlarını şablon olarak kaydet
+                                </label>
+                            </div>
+                            <div id="templateNameSection" class="mt-2" style="display: none;">
+                                <input type="text" class="form-control" id="templateName" placeholder="Şablon adını girin">
+                            </div>
+                        </div>
+
                         <div class="alert alert-danger" id="errorAlert" style="display: none;"></div>
                         <div class="alert alert-success" id="successAlert" style="display: none;"></div>
                         
@@ -141,6 +166,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const errorAlert = document.getElementById('errorAlert');
     const successAlert = document.getElementById('successAlert');
     const importButton = document.getElementById('importButton');
+    const importTemplateSelect = document.getElementById('importTemplateSelect');
+    const deleteTemplateBtn = document.getElementById('deleteTemplateBtn');
+    const saveAsTemplate = document.getElementById('saveAsTemplate');
+    const templateNameSection = document.getElementById('templateNameSection');
+    const templateName = document.getElementById('templateName');
     
     let excelColumns = [];
     let oracleColumns = [];
@@ -564,6 +594,117 @@ document.addEventListener('DOMContentLoaded', function() {
             showError('Tablolar yüklenirken hata oluştu: ' + error);
         });
     
+    // Şablon kaydetme checkbox'ı değiştiğinde
+    saveAsTemplate.addEventListener('change', function() {
+        templateNameSection.style.display = this.checked ? 'block' : 'none';
+        if (!this.checked) {
+            templateName.value = '';
+        }
+    });
+    
+    // Kayıtlı şablonları yükle
+    function loadImportTemplates() {
+        fetch('/api/import-templates')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    importTemplateSelect.innerHTML = '<option value="">Yeni import işlemi</option>' +
+                        data.templates.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+                } else {
+                    showError('Şablonlar yüklenirken hata oluştu: ' + data.error);
+                }
+            })
+            .catch(error => {
+                showError('Şablonlar yüklenirken hata oluştu: ' + error);
+            });
+    }
+    
+    // Şablon seçildiğinde
+    importTemplateSelect.addEventListener('change', function() {
+        const templateId = this.value;
+        deleteTemplateBtn.style.display = templateId ? 'block' : 'none';
+        
+        if (templateId) {
+            fetch(`/api/import-templates/${templateId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const template = data.templates[0];
+                        
+                        // Form alanlarını doldur
+                        if (template.file_input_mode === 'path') {
+                            document.getElementById('filePathMode').checked = true;
+                            document.getElementById('filePathSection').style.display = 'block';
+                            document.getElementById('fileSelectSection').style.display = 'none';
+                            document.getElementById('excelFilePath').value = template.file_path;
+                        } else {
+                            document.getElementById('fileSelectMode').checked = true;
+                            document.getElementById('filePathSection').style.display = 'none';
+                            document.getElementById('fileSelectSection').style.display = 'block';
+                        }
+                        
+                        // Sayfa bilgisini yükle
+                        if (template.file_input_mode === 'path' && template.file_path) {
+                            handleFileInput();
+                        }
+                        
+                        // Yeni/mevcut tablo seçimini ayarla
+                        createNewTableCheckbox.checked = template.create_new_table;
+                        if (template.create_new_table) {
+                            existingTableSection.style.display = 'none';
+                            newTableSection.style.display = 'block';
+                            newTableNameInput.value = template.table_name;
+                        } else {
+                            existingTableSection.style.display = 'block';
+                            newTableSection.style.display = 'none';
+                            tableSelect.value = template.table_name;
+                            
+                            // Import modunu ayarla
+                            document.querySelector(`input[name="importMode"][value="${template.import_mode}"]`).checked = true;
+                        }
+                        
+                        // Son kullanım zamanını güncelle
+                        fetch(`/api/import-templates/${templateId}`, { method: 'PUT' });
+                    } else {
+                        showError('Şablon yüklenirken hata oluştu: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    showError('Şablon yüklenirken hata oluştu: ' + error);
+                });
+        } else {
+            // Form alanlarını sıfırla
+            form.reset();
+            columnMappingSection.style.display = 'none';
+            existingTableSection.style.display = 'block';
+            newTableSection.style.display = 'none';
+            document.getElementById('fileSelectSection').style.display = 'block';
+            document.getElementById('filePathSection').style.display = 'none';
+        }
+    });
+    
+    // Şablon silme
+    deleteTemplateBtn.addEventListener('click', function() {
+        const templateId = importTemplateSelect.value;
+        if (templateId && confirm('Bu import şablonunu silmek istediğinize emin misiniz?')) {
+            fetch(`/api/import-templates/${templateId}`, { method: 'DELETE' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showSuccess('Şablon başarıyla silindi');
+                        loadImportTemplates();
+                        importTemplateSelect.value = '';
+                        deleteTemplateBtn.style.display = 'none';
+                    } else {
+                        showError('Şablon silinirken hata oluştu: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    showError('Şablon silinirken hata oluştu: ' + error);
+                });
+        }
+    });
+
     // Form gönderildiğinde
     form.addEventListener('submit', function(e) {
         e.preventDefault();
@@ -675,7 +816,45 @@ document.addEventListener('DOMContentLoaded', function() {
                         message += `${excel} → ${oracle}<br>`;
                     }
                 }
-                showSuccess(message);
+                
+                // Şablon olarak kaydet
+                if (saveAsTemplate.checked && templateName.value.trim()) {
+                    const templateData = {
+                        name: templateName.value.trim(),
+                        file_input_mode: fileInputMode,
+                        file_path: fileInputMode === 'path' ? document.getElementById('excelFilePath').value.trim() : null,
+                        sheet_name: sheetSelect.value,
+                        create_new_table: createNewTableCheckbox.checked,
+                        table_name: createNewTableCheckbox.checked ? newTableNameInput.value.trim() : tableSelect.value,
+                        import_mode: document.querySelector('input[name="importMode"]:checked').value,
+                        column_mappings: columnMappings
+                    };
+                    
+                    fetch('/api/import-templates', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(templateData)
+                    })
+                    .then(response => response.json())
+                    .then(templateResponse => {
+                        if (templateResponse.success) {
+                            message += '<br><br>Import şablonu başarıyla kaydedildi.';
+                            loadImportTemplates();
+                        } else {
+                            message += '<br><br>Import şablonu kaydedilirken hata oluştu: ' + templateResponse.error;
+                        }
+                        showSuccess(message);
+                    })
+                    .catch(error => {
+                        message += '<br><br>Import şablonu kaydedilirken hata oluştu: ' + error;
+                        showSuccess(message);
+                    });
+                } else {
+                    showSuccess(message);
+                }
+                
                 // Form alanlarını sıfırla
                 fileInput.value = '';
                 sheetSelect.innerHTML = '<option value="">Önce Excel dosyası seçin</option>';
@@ -683,6 +862,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 newTableNameInput.value = '';
                 columnMappingSection.style.display = 'none';
                 importButton.disabled = true;
+                saveAsTemplate.checked = false;
+                templateNameSection.style.display = 'none';
+                templateName.value = '';
+                
                 // Başarı mesajını 5 saniye sonra gizle
                 setTimeout(() => {
                     successAlert.style.display = 'none';
@@ -699,6 +882,9 @@ document.addEventListener('DOMContentLoaded', function() {
             importButton.querySelector('.spinner-border').style.display = 'none';
         });
     });
+    
+    // Sayfa yüklendiğinde şablonları yükle
+    loadImportTemplates();
     
     function showError(message) {
         errorAlert.textContent = message;
