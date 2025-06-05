@@ -35,6 +35,22 @@
                                 <select class="form-select" id="tableSelect">
                                     <option value="">Yükleniyor...</option>
                                 </select>
+                                
+                                <div class="mt-3">
+                                    <label class="form-label">İçe Aktarma Modu</label>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="importMode" id="appendMode" value="append" checked>
+                                        <label class="form-check-label" for="appendMode">
+                                            Mevcut verilere ekle (Append)
+                                        </label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="importMode" id="replaceMode" value="replace">
+                                        <label class="form-check-label" for="replaceMode">
+                                            Mevcut verileri sil ve yeniden yükle (Replace)
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
                             
                             <div id="newTableSection" style="display: none;">
@@ -487,6 +503,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             formData.append('table_name', tableSelect.value);
+            // İçe aktarma modunu ekle
+            const importMode = document.querySelector('input[name="importMode"]:checked').value;
+            formData.append('import_mode', importMode);
         }
         
         importButton.disabled = true;
