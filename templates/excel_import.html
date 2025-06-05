@@ -292,8 +292,12 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Excel sayfası seçildiğinde sütun bilgilerini al
     sheetSelect.addEventListener('change', function() {
-        if (this.value && fileInput.files.length > 0) {
-            const formData = new FormData();
+        if (!this.value) return;
+
+        const fileInputType = document.querySelector('input[name="fileInputType"]:checked').value;
+        const formData = new FormData();
+        
+        if (fileInputType === 'upload' && fileInput.files.length > 0) {
             formData.append('file', fileInput.files[0]);
             formData.append('sheet_name', this.value);
             
@@ -302,21 +306,41 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: formData
             })
             .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    excelColumns = data.columns;
-                    columnTypes = data.column_types;
-                    // Sütun eşleştirme tablosunu gizle
-                    columnMappingSection.style.display = 'none';
-                } else {
-                    showError('Sütun bilgileri alınırken hata oluştu: ' + data.error);
-                }
+            .then(handleColumnResponse)
+            .catch(error => {
+                showError('Sütun bilgileri alınırken hata oluştu: ' + error);
+            });
+        } else if (fileInputType === 'path' && filePathInput.value.trim()) {
+            formData.append('file_path', filePathInput.value.trim());
+            formData.append('sheet_name', this.value);
+            
+            fetch('/api/excel/columns-from-path', {
+                method: 'POST',
+                body: formData
             })
+            .then(response => response.json())
+            .then(handleColumnResponse)
             .catch(error => {
                 showError('Sütun bilgileri alınırken hata oluştu: ' + error);
             });
         }
     });
+
+    function handleColumnResponse(data) {
+        if (data.success) {
+            excelColumns = data.columns;
+            columnTypes = data.column_types;
+            // Sütun eşleştirme tablosunu gizle
+            columnMappingSection.style.display = 'none';
+            
+            // Yeni tablo oluşturma seçeneği işaretliyse sütun eşleştirme tablosunu güncelle
+            if (createNewTableCheckbox.checked) {
+                updateColumnMapping();
+            }
+        } else {
+            showError('Sütun bilgileri alınırken hata oluştu: ' + data.error);
+        }
+    }
 
     // Yeni tablo oluşturma seçeneği değiştiğinde
     createNewTableCheckbox.addEventListener('change', function() {
