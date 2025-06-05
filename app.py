@@ -1698,6 +1698,20 @@ def import_excel():
                     'success': False,
                     'error': f'Geçersiz sütun isimleri: {", ".join(invalid_columns)}'
                 })
+            
+            # İçe aktarma modunu kontrol et
+            import_mode = request.form.get('import_mode', 'append')
+            if import_mode == 'replace':
+                try:
+                    # Tabloyu temizle
+                    cursor.execute(f"TRUNCATE TABLE {table_name}")
+                    connection.commit()
+                except oracledb.DatabaseError as e:
+                    error, = e.args
+                    return jsonify({
+                        'success': False,
+                        'error': f'Tablo temizlenirken hata: {error.message}'
+                    })
         
         # Verileri Oracle'a aktar
         for _, row in df.iterrows():
