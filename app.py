@@ -267,11 +267,20 @@ class ImportConfig(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(500))
-    target_table = db.Column(db.String(100))
+    
+    # Excel ayarları
+    sheet_name = db.Column(db.String(100))
+    
+    # Tablo ayarları
     is_new_table = db.Column(db.Boolean, default=False)
+    target_table = db.Column(db.String(100))
     new_table_name = db.Column(db.String(100))
-    column_mappings = db.Column(db.Text)  # JSON string
     import_mode = db.Column(db.String(20), default='append')
+    
+    # Sütun eşleştirmeleri
+    excel_columns = db.Column(db.Text)  # JSON string [{"name": "Col1", "type": "text"}, ...]
+    column_mappings = db.Column(db.Text)  # JSON string [{"excel_column": "Col1", "oracle_column": "COL1", "oracle_type": "VARCHAR2"}, ...]
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -280,11 +289,13 @@ class ImportConfig(db.Model):
             'id': self.id,
             'name': self.name,
             'description': self.description,
-            'target_table': self.target_table,
+            'sheet_name': self.sheet_name,
             'is_new_table': self.is_new_table,
+            'target_table': self.target_table,
             'new_table_name': self.new_table_name,
-            'column_mappings': json.loads(self.column_mappings) if self.column_mappings else [],
             'import_mode': self.import_mode,
+            'excel_columns': json.loads(self.excel_columns) if self.excel_columns else [],
+            'column_mappings': json.loads(self.column_mappings) if self.column_mappings else [],
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -1670,15 +1681,23 @@ def import_excel():
             if not config_name:
                 return jsonify({'success': False, 'error': 'Konfigürasyon adı gerekli'})
             
+            # Form verilerini al
+            is_new_table = request.form.get('create_new_table') == 'true'
+            sheet_name = request.form.get('sheet_name')
+            excel_columns = request.form.get('excel_columns', '[]')  # Excel sütunları ve tipleri
+            column_mappings = request.form.get('column_mappings', '[]')  # Sütun eşleştirmeleri
+            
             # Yeni konfigürasyon oluştur
             new_config = ImportConfig(
                 name=config_name,
                 description=config_description,
-                target_table=request.form.get('table_name'),
-                is_new_table=request.form.get('create_new_table') == 'true',
-                new_table_name=request.form.get('new_table_name'),
-                column_mappings=request.form.get('column_mappings'),
-                import_mode=request.form.get('import_mode', 'append')
+                sheet_name=sheet_name,
+                is_new_table=is_new_table,
+                target_table=request.form.get('table_name') if not is_new_table else None,
+                new_table_name=request.form.get('new_table_name') if is_new_table else None,
+                import_mode=request.form.get('import_mode', 'append'),
+                excel_columns=excel_columns,
+                column_mappings=column_mappings
             )
             
             try:

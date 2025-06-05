@@ -682,25 +682,69 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (data.success) {
                     const config = data.config;
                     
-                    // Form alanlarını doldur
+                    // Excel ayarları
+                    if (config.sheet_name) {
+                        sheetSelect.value = config.sheet_name;
+                    }
+                    
+                    // Excel sütunları ve tipleri
+                    if (config.excel_columns && config.excel_columns.length > 0) {
+                        excelColumns = config.excel_columns.map(col => col.name);
+                        columnTypes = {};
+                        config.excel_columns.forEach(col => {
+                            columnTypes[col.name] = col.type;
+                        });
+                    }
+                    
+                    // Tablo ayarları
                     createNewTableCheckbox.checked = config.is_new_table;
                     if (config.is_new_table) {
-                        newTableNameInput.value = config.new_table_name;
+                        newTableNameInput.value = config.new_table_name || '';
                         existingTableSection.style.display = 'none';
                         newTableSection.style.display = 'block';
                     } else {
-                        tableSelect.value = config.target_table;
+                        tableSelect.value = config.target_table || '';
                         existingTableSection.style.display = 'block';
                         newTableSection.style.display = 'none';
                         
                         // Import modunu ayarla
-                        document.querySelector(`input[name="importMode"][value="${config.import_mode}"]`).checked = true;
+                        const importModeRadio = document.querySelector(`input[name="importMode"][value="${config.import_mode}"]`);
+                        if (importModeRadio) {
+                            importModeRadio.checked = true;
+                        }
                     }
                     
                     // Sütun eşleştirmelerini yükle
-                    if (config.column_mappings.length > 0) {
-                        columnMappings = config.column_mappings;
+                    if (config.column_mappings && config.column_mappings.length > 0) {
                         updateColumnMapping();
+                        
+                        // Eşleştirmeleri ayarla
+                        const rows = columnMappingBody.getElementsByTagName('tr');
+                        config.column_mappings.forEach(mapping => {
+                            for (const row of rows) {
+                                const excelCol = row.cells[0].textContent;
+                                if (excelCol === mapping.excel_column) {
+                                    // Oracle sütununu seç
+                                    const oracleCell = row.cells[1];
+                                    if (oracleCell.querySelector('select')) {
+                                        oracleCell.querySelector('select').value = mapping.oracle_column;
+                                    }
+                                    
+                                    // Veri tipini seç
+                                    const typeSelect = row.cells[2].querySelector('select');
+                                    if (typeSelect) {
+                                        typeSelect.value = mapping.oracle_type;
+                                    }
+                                    
+                                    // Checkbox'ı işaretle
+                                    const includeCheckbox = row.cells[3].querySelector('input[type="checkbox"]');
+                                    if (includeCheckbox) {
+                                        includeCheckbox.checked = true;
+                                    }
+                                    break;
+                                }
+                            }
+                        });
                     }
                     
                     showSuccess('Konfigürasyon başarıyla yüklendi');
@@ -751,7 +795,17 @@ document.addEventListener('DOMContentLoaded', function() {
         formData.append('config_name', configName);
         formData.append('config_description', configDescription);
         
-        // Mevcut form değerlerini ekle
+        // Excel ayarları
+        formData.append('sheet_name', sheetSelect.value);
+        
+        // Excel sütunları ve tipleri
+        const excelColumnsData = excelColumns.map(col => ({
+            name: col,
+            type: columnTypes[col] || 'text'
+        }));
+        formData.append('excel_columns', JSON.stringify(excelColumnsData));
+        
+        // Tablo ayarları
         formData.append('create_new_table', createNewTableCheckbox.checked);
         if (createNewTableCheckbox.checked) {
             formData.append('new_table_name', newTableNameInput.value);
