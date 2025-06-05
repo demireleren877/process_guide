@@ -11,8 +11,30 @@
                 <div class="card-body">
                     <form id="excelImportForm" enctype="multipart/form-data" novalidate>
                         <div class="mb-3">
-                            <label for="excelFile" class="form-label">Excel Dosyası</label>
-                            <input type="file" class="form-control" id="excelFile" accept=".xlsx,.xls">
+                            <label class="form-label">Excel Dosyası Seçimi</label>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="radio" name="fileInputType" id="fileUploadRadio" value="upload" checked>
+                                <label class="form-check-label" for="fileUploadRadio">
+                                    Dosya Yükle
+                                </label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="radio" name="fileInputType" id="filePathRadio" value="path">
+                                <label class="form-check-label" for="filePathRadio">
+                                    Dosya Yolu Gir
+                                </label>
+                            </div>
+                            
+                            <div id="fileUploadSection">
+                                <input type="file" class="form-control" id="excelFile" accept=".xlsx,.xls">
+                            </div>
+                            
+                            <div id="filePathSection" style="display: none;">
+                                <input type="text" class="form-control" id="excelPath" placeholder="Örnek: C:\Users\Username\Documents\data.xlsx">
+                                <small class="form-text text-muted">
+                                    Tam dosya yolunu girin (örn: C:\Folder\file.xlsx)
+                                </small>
+                            </div>
                         </div>
                         
                         <div class="mb-3">
@@ -170,6 +192,10 @@
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('excelImportForm');
     const fileInput = document.getElementById('excelFile');
+    const filePathInput = document.getElementById('excelPath');
+    const fileUploadSection = document.getElementById('fileUploadSection');
+    const filePathSection = document.getElementById('filePathSection');
+    const fileInputTypeRadios = document.getElementsByName('fileInputType');
     const sheetSelect = document.getElementById('sheetSelect');
     const tableSelect = document.getElementById('tableSelect');
     const createNewTableCheckbox = document.getElementById('createNewTable');
@@ -192,6 +218,50 @@ document.addEventListener('DOMContentLoaded', function() {
     let excelColumns = [];
     let oracleColumns = [];
     let columnTypes = {};
+    
+    // Dosya giriş tipini değiştirme
+    fileInputTypeRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            if (this.value === 'upload') {
+                fileUploadSection.style.display = 'block';
+                filePathSection.style.display = 'none';
+                filePathInput.value = '';
+            } else {
+                fileUploadSection.style.display = 'none';
+                filePathSection.style.display = 'block';
+                fileInput.value = '';
+            }
+            checkImportButtonState();
+        });
+    });
+    
+    // Dosya yolu değiştiğinde
+    filePathInput.addEventListener('change', function() {
+        if (this.value) {
+            // Dosya yolundan Excel sayfalarını al
+            const formData = new FormData();
+            formData.append('file_path', this.value);
+            
+            fetch('/api/excel/sheets-from-path', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    sheetSelect.innerHTML = '<option value="">Sayfa seçin</option>' +
+                        data.sheets.map(sheet => `<option value="${sheet}">${sheet}</option>`).join('');
+                    sheetSelect.disabled = false;
+                    checkImportButtonState();
+                } else {
+                    showError('Sayfalar yüklenirken hata oluştu: ' + data.error);
+                }
+            })
+            .catch(error => {
+                showError('Sayfalar yüklenirken hata oluştu: ' + error);
+            });
+        }
+    });
     
     // Excel dosyası seçildiğinde
     fileInput.addEventListener('change', function() {
@@ -220,7 +290,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-
     // Excel sayfası seçildiğinde sütun bilgilerini al
     sheetSelect.addEventListener('change', function() {
         if (this.value && fileInput.files.length > 0) {
@@ -503,13 +572,23 @@ document.addEventListener('DOMContentLoaded', function() {
     form.addEventListener('submit', function(e) {
         e.preventDefault();
         
-        if (!fileInput.files.length || !sheetSelect.value) {
+        const fileInputType = document.querySelector('input[name="fileInputType"]:checked').value;
+        const hasValidFile = fileInputType === 'upload' ? fileInput.files.length > 0 : filePathInput.value.trim() !== '';
+        
+        if (!hasValidFile || !sheetSelect.value) {
             showError('Lütfen Excel dosyası ve sayfa seçin');
             return;
         }
         
         const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
+        
+        if (fileInputType === 'upload') {
+            formData.append('file', fileInput.files[0]);
+        } else {
+            formData.append('file_path', filePathInput.value.trim());
+        }
+        
+        formData.append('file_input_type', fileInputType);
         formData.append('sheet_name', sheetSelect.value);
         
         // Sütun eşleştirme bilgilerini topla
@@ -593,7 +672,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 showSuccess(message);
                 // Form alanlarını sıfırla
-                fileInput.value = '';
+                if (fileInputType === 'upload') {
+                    fileInput.value = '';
+                } else {
+                    filePathInput.value = '';
+                }
                 sheetSelect.innerHTML = '<option value="">Önce Excel dosyası seçin</option>';
                 sheetSelect.disabled = true;
                 newTableNameInput.value = '';
