@@ -32,10 +32,6 @@ ProcessExecutor.set_oracle_config(
 app.config['SQLALCHEMY_DATABASE_URI'] = 'oracle+cx_oracle://username:password@dsn'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# SQLite veritabanı ayarları
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///import_processes.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
 @app.template_filter('from_json')
 def from_json(value):
     try:
@@ -264,18 +260,6 @@ class MailReply(db.Model):
     received_at = db.Column(db.DateTime, default=datetime.now)
     original_subject = db.Column(db.String(255))
     is_reply = db.Column(db.Boolean, default=False)
-
-# Import süreçleri için model
-class ImportProcess(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    file_path = db.Column(db.String(500), nullable=False)
-    sheet_name = db.Column(db.String(100), nullable=False)
-    target_table = db.Column(db.String(100), nullable=False)
-    create_new_table = db.Column(db.Boolean, default=False)  # Yeni tablo oluşturma seçeneği
-    column_mappings = db.Column(db.Text, nullable=False)  # JSON olarak saklanacak
-    import_mode = db.Column(db.String(20), nullable=False)  # 'append' veya 'replace'
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 @app.route('/')
 def index():
@@ -1811,84 +1795,6 @@ def import_excel():
             'message': f'{len(df)} satır başarıyla içe aktarıldı' + 
                       (f' ve {table_name} tablosu oluşturuldu' if create_new_table else ''),
             'column_mapping': column_mapping
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/import-processes', methods=['GET'])
-def get_import_processes():
-    try:
-        processes = ImportProcess.query.order_by(ImportProcess.created_at.desc()).all()
-        return jsonify({
-            'success': True,
-            'processes': [{
-                'id': p.id,
-                'name': p.name,
-                'file_path': p.file_path,
-                'sheet_name': p.sheet_name,
-                'target_table': p.target_table,
-                'create_new_table': p.create_new_table,
-                'import_mode': p.import_mode,
-                'created_at': p.created_at.strftime('%Y-%m-%d %H:%M:%S')
-            } for p in processes]
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/import-processes/<int:process_id>', methods=['GET'])
-def get_import_process(process_id):
-    try:
-        process = ImportProcess.query.get_or_404(process_id)
-        return jsonify({
-            'success': True,
-            'process': {
-                'id': process.id,
-                'name': process.name,
-                'file_path': process.file_path,
-                'sheet_name': process.sheet_name,
-                'target_table': process.target_table,
-                'create_new_table': process.create_new_table,
-                'column_mappings': json.loads(process.column_mappings),
-                'import_mode': process.import_mode,
-                'created_at': process.created_at.strftime('%Y-%m-%d %H:%M:%S')
-            }
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/import-processes', methods=['POST'])
-def save_import_process():
-    try:
-        data = request.get_json()
-        new_process = ImportProcess(
-            name=data['name'],
-            file_path=data['file_path'],
-            sheet_name=data['sheet_name'],
-            target_table=data['target_table'],
-            create_new_table=data.get('create_new_table', False),
-            column_mappings=json.dumps(data['column_mappings']),
-            import_mode=data['import_mode']
-        )
-        db.session.add(new_process)
-        db.session.commit()
-        
-        return jsonify({
-            'success': True,
-            'message': 'Import süreci başarıyla kaydedildi',
-            'process_id': new_process.id
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/import-processes/<int:process_id>', methods=['DELETE'])
-def delete_import_process(process_id):
-    try:
-        process = ImportProcess.query.get_or_404(process_id)
-        db.session.delete(process)
-        db.session.commit()
-        return jsonify({
-            'success': True,
-            'message': 'Import süreci başarıyla silindi'
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})

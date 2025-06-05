@@ -10,14 +10,6 @@
                 </div>
                 <div class="card-body">
                     <form id="excelImportForm" enctype="multipart/form-data" novalidate>
-                        <!-- Kayıtlı Süreç Seçimi -->
-                        <div class="mb-3">
-                            <label class="form-label">Kayıtlı Süreç</label>
-                            <select class="form-select" id="savedProcessSelect">
-                                <option value="">Yeni import işlemi</option>
-                            </select>
-                        </div>
-
                         <div class="mb-3">
                             <label class="form-label">Excel Dosyası Seçimi</label>
                             <div class="form-check mb-2">
@@ -125,34 +117,7 @@
                             <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display: none;"></span>
                             İçe Aktar
                         </button>
-
-                        <!-- Süreç Kaydetme Butonu -->
-                        <button type="button" class="btn btn-secondary" id="saveProcessButton" disabled>
-                            Süreci Kaydet
-                        </button>
                     </form>
-
-                    <!-- Süreç Kaydetme Modalı -->
-                    <div class="modal fade" id="saveProcessModal" tabindex="-1">
-                        <div class="modal-dialog">
-                            <div class="modal-content">
-                                <div class="modal-header">
-                                    <h5 class="modal-title">Import Sürecini Kaydet</h5>
-                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                </div>
-                                <div class="modal-body">
-                                    <div class="mb-3">
-                                        <label for="processName" class="form-label">Süreç Adı</label>
-                                        <input type="text" class="form-control" id="processName" placeholder="Süreç için bir isim girin">
-                                    </div>
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
-                                    <button type="button" class="btn btn-primary" id="saveProcessConfirm">Kaydet</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -176,186 +141,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const errorAlert = document.getElementById('errorAlert');
     const successAlert = document.getElementById('successAlert');
     const importButton = document.getElementById('importButton');
-    const saveProcessButton = document.getElementById('saveProcessButton');
-    const savedProcessSelect = document.getElementById('savedProcessSelect');
-    const saveProcessModal = new bootstrap.Modal(document.getElementById('saveProcessModal'));
     
     let excelColumns = [];
     let oracleColumns = [];
     let columnTypes = {};
     
-    // Kayıtlı süreçleri yükle
-    function loadSavedProcesses() {
-        fetch('/api/import-processes')
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    savedProcessSelect.innerHTML = '<option value="">Yeni import işlemi</option>' +
-                        data.processes.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-                } else {
-                    showError('Kayıtlı süreçler yüklenirken hata oluştu: ' + data.error);
-                }
-            })
-            .catch(error => {
-                showError('Kayıtlı süreçler yüklenirken hata oluştu: ' + error);
-            });
-    }
-
-    // Sayfa yüklendiğinde kayıtlı süreçleri yükle
-    loadSavedProcesses();
-
-    // Kayıtlı süreç seçildiğinde
-    savedProcessSelect.addEventListener('change', function() {
-        if (this.value) {
-            fetch(`/api/import-processes/${this.value}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        const process = data.process;
-                        
-                        // Dosya yolu moduna geç
-                        document.getElementById('filePathMode').checked = true;
-                        document.getElementById('fileSelectSection').style.display = 'none';
-                        document.getElementById('filePathSection').style.display = 'block';
-                        
-                        // Dosya yolunu doldur
-                        document.getElementById('excelFilePath').value = process.file_path;
-                        
-                        // Excel sayfalarını yükle ve seçili sayfayı ayarla
-                        const formData = new FormData();
-                        formData.append('file_path', process.file_path);
-                        formData.append('file_input_mode', 'path');
-                        
-                        fetch('/api/excel/sheets', {
-                            method: 'POST',
-                            body: formData
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.success) {
-                                sheetSelect.innerHTML = '<option value="">Sayfa seçin</option>' +
-                                    data.sheets.map(sheet => `<option value="${sheet}">${sheet}</option>`).join('');
-                                sheetSelect.value = process.sheet_name;
-                                sheetSelect.disabled = false;
-                                
-                                // Sütun bilgilerini yükle
-                                handleFileInput();
-                            }
-                        });
-                        
-                        // Hedef tabloyu seç
-                        if (process.create_new_table) {
-                            createNewTableCheckbox.checked = true;
-                            existingTableSection.style.display = 'none';
-                            newTableSection.style.display = 'block';
-                            tableSelect.disabled = true;
-                            newTableNameInput.disabled = false;
-                            newTableNameInput.value = process.target_table;
-                        } else {
-                            createNewTableCheckbox.checked = false;
-                            existingTableSection.style.display = 'block';
-                            newTableSection.style.display = 'none';
-                            tableSelect.disabled = false;
-                            newTableNameInput.disabled = true;
-                            tableSelect.value = process.target_table;
-                            
-                            // Import modunu ayarla
-                            document.querySelector(`input[name="importMode"][value="${process.import_mode}"]`).checked = true;
-                        }
-                    } else {
-                        showError('Süreç bilgileri yüklenirken hata oluştu: ' + data.error);
-                    }
-                })
-                .catch(error => {
-                    showError('Süreç bilgileri yüklenirken hata oluştu: ' + error);
-                });
-        }
-    });
-
-    // Süreç kaydetme butonunu aktifleştir/deaktifleştir
-    function checkSaveProcessButtonState() {
-        const fileInputMode = document.querySelector('input[name="fileInputMode"]:checked').value;
-        const hasFile = fileInputMode === 'path' && document.getElementById('excelFilePath').value.trim() !== '';
-        const hasSheet = sheetSelect.value !== '';
-        const hasTable = !createNewTableCheckbox.checked && tableSelect.value !== '';
-        
-        saveProcessButton.disabled = !(hasFile && hasSheet && hasTable);
-    }
-
-    // Form alanları değiştiğinde süreç kaydetme butonunun durumunu kontrol et
-    sheetSelect.addEventListener('change', checkSaveProcessButtonState);
-    tableSelect.addEventListener('change', checkSaveProcessButtonState);
-    document.getElementById('excelFilePath').addEventListener('input', checkSaveProcessButtonState);
-
-    // Süreç kaydetme butonuna tıklandığında
-    saveProcessButton.addEventListener('click', function() {
-        saveProcessModal.show();
-    });
-
-    // Süreç kaydetme onaylandığında
-    document.getElementById('saveProcessConfirm').addEventListener('click', function() {
-        const processName = document.getElementById('processName').value.trim();
-        if (!processName) {
-            showError('Lütfen süreç için bir isim girin');
-            return;
-        }
-
-        // Sütun eşleştirmelerini topla
-        const columnMappings = [];
-        const rows = columnMappingBody.getElementsByTagName('tr');
-        for (const row of rows) {
-            const includeCheckbox = row.cells[3].querySelector('input[type="checkbox"]');
-            if (includeCheckbox.checked) {
-                const excelCol = row.cells[0].textContent;
-                const oracleCell = row.cells[1];
-                const oracleCol = oracleCell.querySelector('select') ? 
-                    oracleCell.querySelector('select').value : 
-                    oracleCell.textContent;
-                const oracleType = row.cells[2].querySelector('select').value;
-                
-                columnMappings.push({
-                    excel_column: excelCol,
-                    oracle_column: oracleCol,
-                    oracle_type: oracleType
-                });
-            }
-        }
-
-        const processData = {
-            name: processName,
-            file_path: document.getElementById('excelFilePath').value.trim(),
-            sheet_name: sheetSelect.value,
-            target_table: createNewTableCheckbox.checked ? 
-                newTableNameInput.value.trim() : 
-                tableSelect.value,
-            create_new_table: createNewTableCheckbox.checked,
-            column_mappings: columnMappings,
-            import_mode: document.querySelector('input[name="importMode"]:checked').value
-        };
-
-        fetch('/api/import-processes', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(processData)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showSuccess('Import süreci başarıyla kaydedildi');
-                saveProcessModal.hide();
-                document.getElementById('processName').value = '';
-                loadSavedProcesses();  // Kayıtlı süreçleri yeniden yükle
-            } else {
-                showError('Süreç kaydedilirken hata oluştu: ' + data.error);
-            }
-        })
-        .catch(error => {
-            showError('Süreç kaydedilirken hata oluştu: ' + error);
-        });
-    });
-
     // Excel dosyası seçildiğinde veya dosya yolu girildiğinde
     function handleFileInput() {
         const fileInputMode = document.querySelector('input[name="fileInputMode"]:checked').value;
@@ -417,6 +207,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Sayfa seçimini sıfırla
             sheetSelect.innerHTML = '<option value="">Önce Excel dosyası seçin</option>';
             sheetSelect.disabled = true;
+            columnMappingSection.style.display = 'none';
             checkImportButtonState();
         });
     });
@@ -735,10 +526,28 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         }
+
+        // Yeni tablo oluşturma modunda ve sütunlar yüklenmişse geçerli kabul et
+        if (isNewTable && columnMappingBody.children.length > 0) {
+            hasValidColumnMappings = true;
+        }
         
         importButton.disabled = !(hasFile && hasSheet && hasTable && hasValidColumnMappings);
+        
+        // Debug için konsola yazdır
+        console.log('Button State Check:', {
+            hasFile,
+            hasSheet,
+            hasTable,
+            isNewTable,
+            hasValidColumnMappings,
+            disabled: importButton.disabled
+        });
     }
-    
+
+    // Yeni tablo adı değiştiğinde buton durumunu kontrol et
+    newTableNameInput.addEventListener('input', checkImportButtonState);
+
     // Oracle tablolarını yükle
     fetch('/api/oracle/tables')
         .then(response => response.json())
