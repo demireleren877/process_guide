@@ -1799,6 +1799,180 @@ def import_excel():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+# Import Process modeli
+class ImportProcess(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    file_path = db.Column(db.String(500), nullable=False)
+    sheet_name = db.Column(db.String(100), nullable=False)
+    create_new_table = db.Column(db.Boolean, default=False)
+    table_name = db.Column(db.String(100), nullable=False)
+    column_mappings = db.Column(db.Text, nullable=False)  # JSON olarak saklanacak
+    import_mode = db.Column(db.String(20), default='append')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_used_at = db.Column(db.DateTime)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'file_path': self.file_path,
+            'sheet_name': self.sheet_name,
+            'create_new_table': self.create_new_table,
+            'table_name': self.table_name,
+            'column_mappings': json.loads(self.column_mappings),
+            'import_mode': self.import_mode,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_used_at': self.last_used_at.isoformat() if self.last_used_at else None
+        }
+
+with app.app_context():
+    db.create_all()
+
+# Import Process endpoints
+@app.route('/api/import-processes', methods=['GET'])
+def get_import_processes():
+    processes = ImportProcess.query.order_by(ImportProcess.created_at.desc()).all()
+    return jsonify({
+        'success': True,
+        'processes': [process.to_dict() for process in processes]
+    })
+
+@app.route('/api/import-processes', methods=['POST'])
+def save_import_process():
+    try:
+        data = request.json
+        if not data.get('name'):
+            return jsonify({'success': False, 'error': 'İşlem adı gerekli'})
+
+        process = ImportProcess(
+            name=data['name'],
+            file_path=data['file_path'],
+            sheet_name=data['sheet_name'],
+            create_new_table=data['create_new_table'],
+            table_name=data['table_name'],
+            column_mappings=json.dumps(data['column_mappings']),
+            import_mode=data.get('import_mode', 'append')
+        )
+        db.session.add(process)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': 'İşlem başarıyla kaydedildi',
+            'process': process.to_dict()
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/import-processes/<int:process_id>', methods=['GET'])
+def get_import_process(process_id):
+    process = ImportProcess.query.get_or_404(process_id)
+    return jsonify({
+        'success': True,
+        'process': process.to_dict()
+    })
+
+@app.route('/api/import-processes/<int:process_id>', methods=['DELETE'])
+def delete_import_process(process_id):
+    process = ImportProcess.query.get_or_404(process_id)
+    db.session.delete(process)
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'message': 'İşlem başarıyla silindi'
+    })
+
+@app.route('/api/import-processes/<int:process_id>/execute', methods=['POST'])
+def execute_import_process(process_id):
+    try:
+        process = ImportProcess.query.get_or_404(process_id)
+        
+        # Dosyanın varlığını kontrol et
+        if not os.path.exists(process.file_path):
+            return jsonify({
+                'success': False,
+                'error': 'Dosya bulunamadı: ' + process.file_path
+            })
+        
+        # Import işlemini gerçekleştir
+        df = pd.read_excel(process.file_path, sheet_name=process.sheet_name)
+        column_mappings = json.loads(process.column_mappings)
+        
+        # Oracle bağlantısı
+        connection = oracledb.connect(
+            user=app.config['ORACLE_USERNAME'],
+            password=app.config['ORACLE_PASSWORD'],
+            dsn=app.config['ORACLE_DSN']
+        )
+        cursor = connection.cursor()
+        
+        # Replace modunda tabloyu temizle
+        if process.import_mode == 'replace' and not process.create_new_table:
+            cursor.execute(f"TRUNCATE TABLE {process.table_name}")
+            connection.commit()
+        
+        # Yeni tablo oluştur
+        if process.create_new_table:
+            create_table_query = f"""
+            CREATE TABLE {process.table_name} (
+                {', '.join(f'"{mapping["oracle_column"]}" {mapping["oracle_type"]}' for mapping in column_mappings)}
+            )
+            """
+            cursor.execute(create_table_query)
+            connection.commit()
+        
+        # Verileri Oracle'a aktar
+        for _, row in df.iterrows():
+            values = []
+            columns = []
+            
+            for mapping in column_mappings:
+                excel_col = mapping['excel_column']
+                oracle_col = mapping['oracle_column']
+                oracle_type = mapping['oracle_type'].upper()
+                
+                if excel_col in df.columns:
+                    value = row[excel_col]
+                    
+                    # Veri tipi dönüşümü
+                    if 'NUMBER' in oracle_type or 'INTEGER' in oracle_type or 'FLOAT' in oracle_type:
+                        value = float(value) if pd.notna(value) else 0
+                    elif 'DATE' in oracle_type or 'TIMESTAMP' in oracle_type:
+                        value = value if pd.notna(value) and isinstance(value, (pd.Timestamp, datetime)) else None
+                    else:
+                        value = str(value) if pd.notna(value) else None
+                    
+                    values.append(value)
+                    columns.append(oracle_col)
+            
+            placeholders = ','.join([':' + str(i+1) for i in range(len(columns))])
+            insert_query = f"INSERT INTO {process.table_name} ({','.join(f'"{col}"' for col in columns)}) VALUES ({placeholders})"
+            
+            try:
+                cursor.execute(insert_query, values)
+            except oracledb.DatabaseError as e:
+                error, = e.args
+                return jsonify({
+                    'success': False, 
+                    'error': f'Veri aktarımı sırasında hata: {error.message}. Sütun: {excel_col}, Değer: {value}'
+                })
+        
+        connection.commit()
+        cursor.close()
+        connection.close()
+        
+        # Son kullanım zamanını güncelle
+        process.last_used_at = datetime.utcnow()
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'{len(df)} satır başarıyla içe aktarıldı'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 if __name__ == '__main__':
     with app.app_context():
         # Sadece tabloları oluştur, silme işlemini kaldır

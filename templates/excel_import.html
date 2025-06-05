@@ -9,6 +9,66 @@
                     <h4 class="mb-0">Excel'den Oracle'a Veri Aktarımı</h4>
                 </div>
                 <div class="card-body">
+                    <!-- Kayıtlı İşlemler Modal -->
+                    <div class="modal fade" id="savedProcessesModal" tabindex="-1">
+                        <div class="modal-dialog modal-lg">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">Kayıtlı İşlemler</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-striped">
+                                            <thead>
+                                                <tr>
+                                                    <th>İşlem Adı</th>
+                                                    <th>Dosya Yolu</th>
+                                                    <th>Hedef Tablo</th>
+                                                    <th>Son Kullanım</th>
+                                                    <th>İşlemler</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="savedProcessesList">
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- İşlem Kaydetme Modal -->
+                    <div class="modal fade" id="saveProcessModal" tabindex="-1">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">İşlemi Kaydet</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="mb-3">
+                                        <label for="processName" class="form-label">İşlem Adı</label>
+                                        <input type="text" class="form-control" id="processName" placeholder="İşlem için bir isim girin">
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                                    <button type="button" class="btn btn-primary" id="saveProcessButton">Kaydet</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-outline-primary me-2" data-bs-toggle="modal" data-bs-target="#savedProcessesModal">
+                            <i class="fas fa-folder-open"></i> Kayıtlı İşlemler
+                        </button>
+                        <button type="button" class="btn btn-outline-success" id="saveCurrentProcess">
+                            <i class="fas fa-save"></i> Bu İşlemi Kaydet
+                        </button>
+                    </div>
+
                     <form id="excelImportForm" enctype="multipart/form-data" novalidate>
                         <div class="mb-3">
                             <label class="form-label">Excel Dosyası Seçimi</label>
@@ -711,6 +771,181 @@ document.addEventListener('DOMContentLoaded', function() {
         successAlert.style.display = 'block';
         errorAlert.style.display = 'none';
     }
+
+    // Kayıtlı işlemleri yükle
+    function loadSavedProcesses() {
+        fetch('/api/import-processes')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const tbody = document.getElementById('savedProcessesList');
+                    tbody.innerHTML = '';
+                    
+                    data.processes.forEach(process => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${process.name}</td>
+                            <td>${process.file_path}</td>
+                            <td>${process.table_name}</td>
+                            <td>${process.last_used_at ? new Date(process.last_used_at).toLocaleString() : '-'}</td>
+                            <td>
+                                <button class="btn btn-sm btn-primary me-1" onclick="loadProcess(${process.id})">
+                                    <i class="fas fa-play"></i> Çalıştır
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteProcess(${process.id})">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                } else {
+                    showError('Kayıtlı işlemler yüklenirken hata oluştu: ' + data.error);
+                }
+            })
+            .catch(error => {
+                showError('Kayıtlı işlemler yüklenirken hata oluştu: ' + error);
+            });
+    }
+
+    // İşlem silme
+    window.deleteProcess = function(processId) {
+        if (confirm('Bu işlemi silmek istediğinizden emin misiniz?')) {
+            fetch(`/api/import-processes/${processId}`, {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showSuccess('İşlem başarıyla silindi');
+                    loadSavedProcesses();
+                } else {
+                    showError('İşlem silinirken hata oluştu: ' + data.error);
+                }
+            })
+            .catch(error => {
+                showError('İşlem silinirken hata oluştu: ' + error);
+            });
+        }
+    };
+
+    // İşlem yükleme ve çalıştırma
+    window.loadProcess = function(processId) {
+        fetch(`/api/import-processes/${processId}/execute`, {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showSuccess(data.message);
+                loadSavedProcesses();
+                bootstrap.Modal.getInstance(document.getElementById('savedProcessesModal')).hide();
+            } else {
+                showError('İşlem çalıştırılırken hata oluştu: ' + data.error);
+            }
+        })
+        .catch(error => {
+            showError('İşlem çalıştırılırken hata oluştu: ' + error);
+        });
+    };
+
+    // Mevcut işlemi kaydetme
+    document.getElementById('saveCurrentProcess').addEventListener('click', function() {
+        // Form verilerini kontrol et
+        const fileInputMode = document.querySelector('input[name="fileInputMode"]:checked').value;
+        const filePath = fileInputMode === 'select' ? 
+            (fileInput.files[0]?.name || '') : 
+            document.getElementById('excelFilePath').value.trim();
+        
+        if (!filePath || !sheetSelect.value) {
+            showError('Lütfen önce dosya ve sayfa seçin');
+            return;
+        }
+
+        // Kaydetme modalını göster
+        const saveModal = new bootstrap.Modal(document.getElementById('saveProcessModal'));
+        saveModal.show();
+    });
+
+    // İşlem kaydetme
+    document.getElementById('saveProcessButton').addEventListener('click', function() {
+        const processName = document.getElementById('processName').value.trim();
+        if (!processName) {
+            showError('Lütfen işlem adı girin');
+            return;
+        }
+
+        const fileInputMode = document.querySelector('input[name="fileInputMode"]:checked').value;
+        const filePath = fileInputMode === 'select' ? 
+            (fileInput.files[0]?.name || '') : 
+            document.getElementById('excelFilePath').value.trim();
+
+        // Sütun eşleştirmelerini topla
+        const columnMappings = [];
+        const rows = columnMappingBody.getElementsByTagName('tr');
+        for (const row of rows) {
+            const includeCheckbox = row.cells[3].querySelector('input[type="checkbox"]');
+            if (includeCheckbox.checked) {
+                const excelCol = row.cells[0].textContent;
+                let oracleCol, oracleType;
+                
+                if (createNewTableCheckbox.checked) {
+                    oracleCol = row.cells[1].textContent;
+                    oracleType = row.cells[2].querySelector('select').value;
+                } else {
+                    const oracleCell = row.cells[1];
+                    if (oracleCell.querySelector('select')) {
+                        oracleCol = oracleCell.querySelector('select').value;
+                    } else {
+                        oracleCol = oracleCell.textContent;
+                    }
+                    oracleType = row.cells[2].querySelector('select').value;
+                }
+                
+                columnMappings.push({
+                    excel_column: excelCol,
+                    oracle_column: oracleCol,
+                    oracle_type: oracleType
+                });
+            }
+        }
+
+        const processData = {
+            name: processName,
+            file_path: filePath,
+            sheet_name: sheetSelect.value,
+            create_new_table: createNewTableCheckbox.checked,
+            table_name: createNewTableCheckbox.checked ? 
+                newTableNameInput.value.trim() : 
+                tableSelect.value,
+            column_mappings: columnMappings,
+            import_mode: document.querySelector('input[name="importMode"]:checked').value
+        };
+
+        fetch('/api/import-processes', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(processData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showSuccess('İşlem başarıyla kaydedildi');
+                bootstrap.Modal.getInstance(document.getElementById('saveProcessModal')).hide();
+                document.getElementById('processName').value = '';
+            } else {
+                showError('İşlem kaydedilirken hata oluştu: ' + data.error);
+            }
+        })
+        .catch(error => {
+            showError('İşlem kaydedilirken hata oluştu: ' + error);
+        });
+    });
+
+    // Kayıtlı işlemler modalı açıldığında işlemleri yükle
+    document.getElementById('savedProcessesModal').addEventListener('show.bs.modal', loadSavedProcesses);
 });
 </script>
 {% endblock %} 
