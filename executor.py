@@ -350,12 +350,6 @@ class ProcessExecutor:
                     except:
                         continue
             return result
-        elif step_type == 'excel_import':
-            return {
-                'success': True,
-                'output': 'Excel import sayfasına yönlendiriliyorsunuz...',
-                'error': None
-            }
         else:
             return {
                 'success': True,
