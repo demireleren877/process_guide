@@ -4,11 +4,34 @@
 <div class="container mt-4">
     <div class="row">
         <div class="col-md-8 offset-md-2">
+            {% if config %}
+            <script type="application/json" id="configData">
+                {
+                    "tableName": "{{ config.table_name }}",
+                    "lastFileName": "{{ config.last_file_name }}",
+                    "lastSheetName": "{{ config.last_sheet_name }}",
+                    "columnMappings": {{ config.column_mappings | safe if config.column_mappings else "[]" }}
+                }
+            </script>
+            {% endif %}
             <div class="card">
                 <div class="card-header">
                     <h4 class="mb-0">Excel'den Oracle'a Veri Aktarımı</h4>
                 </div>
                 <div class="card-body">
+                    {% if config %}
+                    <div class="alert alert-info">
+                        <h5>Son Kullanılan Ayarlar</h5>
+                        <p>
+                            <strong>Tablo:</strong> {{ config.table_name }}<br>
+                            <strong>Son Dosya:</strong> {{ config.last_file_name }}<br>
+                            <strong>Son Sayfa:</strong> {{ config.last_sheet_name }}
+                        </p>
+                        <button type="button" class="btn btn-sm btn-primary" id="loadLastConfig">
+                            Son Ayarları Kullan
+                        </button>
+                    </div>
+                    {% endif %}
                     <form id="excelImportForm" enctype="multipart/form-data" novalidate>
                         <div class="mb-3">
                             <label for="excelFile" class="form-label">Excel Dosyası</label>
@@ -122,10 +145,39 @@ document.addEventListener('DOMContentLoaded', function() {
     const errorAlert = document.getElementById('errorAlert');
     const successAlert = document.getElementById('successAlert');
     const importButton = document.getElementById('importButton');
+    const loadLastConfigButton = document.getElementById('loadLastConfig');
     
     let excelColumns = [];
     let oracleColumns = [];
     let columnTypes = {};
+    let savedConfig = null;
+    
+    // Kaydedilmiş konfigürasyonu yükle
+    const configData = document.getElementById('configData');
+    if (configData) {
+        try {
+            savedConfig = JSON.parse(configData.textContent);
+        } catch (e) {
+            console.error('Config parsing error:', e);
+        }
+    }
+    
+    // Son ayarları kullanma butonu
+    if (loadLastConfigButton && savedConfig) {
+        loadLastConfigButton.addEventListener('click', function() {
+            // Tablo seçimini ayarla
+            if (tableSelect.querySelector(`option[value="${savedConfig.tableName}"]`)) {
+                tableSelect.value = savedConfig.tableName;
+                tableSelect.dispatchEvent(new Event('change'));
+            }
+            
+            // Sütun eşleştirmelerini kaydet
+            if (savedConfig.columnMappings) {
+                columnMappings = savedConfig.columnMappings;
+                updateColumnMapping();
+            }
+        });
+    }
     
     // Excel dosyası seçildiğinde
     fileInput.addEventListener('change', function() {
@@ -445,6 +497,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         formData.append('sheet_name', sheetSelect.value);
+        
+        // URL'den step_id parametresini al
+        const urlParams = new URLSearchParams(window.location.search);
+        const stepId = urlParams.get('step_id');
+        if (stepId) {
+            formData.append('step_id', stepId);
+        }
         
         // Sütun eşleştirme bilgilerini topla
         const columnMappings = [];

@@ -36,8 +36,6 @@
                     <select class="form-select" id="var_type" name="var_type" required>
                         {% if is_mail_step %}
                         <option value="mail_config">Mail Konfigürasyonu</option>
-                        {% elif step.type == 'excel_import' %}
-                        <option value="excel_config">Excel Import Konfigürasyonu</option>
                         {% else %}
                         <option value="string">Metin</option>
                         <option value="number">Sayı</option>
@@ -93,70 +91,6 @@
                             <input type="hidden" id="default_value" name="default_value">
                         </div>
                     </div>
-                    {% elif step.type == 'excel_import' %}
-                    <label for="default_value" class="form-label">Excel Import Konfigürasyonu</label>
-                    <div class="card">
-                        <div class="card-body">
-                            <div class="mb-3">
-                                <label class="form-label">Excel Dosya Yolu</label>
-                                <input type="text" class="form-control excel-input" id="file_path" placeholder="Excel dosya yolunu girin">
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Excel Sayfası</label>
-                                <input type="text" class="form-control excel-input" id="sheet_name" placeholder="Excel sayfa adını girin">
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Hedef Oracle Tablosu</label>
-                                <input type="text" class="form-control excel-input" id="table_name" placeholder="Oracle tablo adını girin">
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">İçe Aktarma Modu</label>
-                                <div class="form-check">
-                                    <input class="form-check-input excel-input" type="radio" name="import_mode" id="append_mode" value="append" checked>
-                                    <label class="form-check-label" for="append_mode">
-                                        Mevcut verilere ekle (Append)
-                                    </label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input excel-input" type="radio" name="import_mode" id="replace_mode" value="replace">
-                                    <label class="form-check-label" for="replace_mode">
-                                        Mevcut verileri sil ve yeniden yükle (Replace)
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Sütun Eşleştirmeleri</label>
-                                <div id="column_mappings">
-                                    <div class="mapping-row mb-2">
-                                        <div class="row">
-                                            <div class="col">
-                                                <input type="text" class="form-control excel-input mapping-excel" placeholder="Excel Sütunu">
-                                            </div>
-                                            <div class="col">
-                                                <input type="text" class="form-control excel-input mapping-oracle" placeholder="Oracle Sütunu">
-                                            </div>
-                                            <div class="col">
-                                                <select class="form-select excel-input mapping-type">
-                                                    <option value="NUMBER">NUMBER</option>
-                                                    <option value="VARCHAR2(255)">VARCHAR2(255)</option>
-                                                    <option value="DATE">DATE</option>
-                                                </select>
-                                            </div>
-                                            <div class="col-auto">
-                                                <button type="button" class="btn btn-danger btn-sm remove-mapping">
-                                                    <i class="bi bi-trash"></i>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <button type="button" class="btn btn-secondary btn-sm mt-2" id="add_mapping">
-                                    <i class="bi bi-plus"></i> Yeni Eşleştirme Ekle
-                                </button>
-                            </div>
-                            <input type="hidden" id="default_value" name="default_value">
-                        </div>
-                    </div>
                     {% else %}
                     <label for="default_value" class="form-label">Varsayılan Değer</label>
                     <input type="text" class="form-control" id="default_value" name="default_value" placeholder="Değer girin...">
@@ -197,127 +131,6 @@
                 <label for="default_value" class="form-label">Varsayılan Değer</label>
                 <input type="number" class="form-control" id="default_value" name="default_value" value="0">
             `;
-                break;
-            case 'excel_config':
-                defaultValueContainer.innerHTML = `
-                <label class="form-label">Excel Import Konfigürasyonu</label>
-                <div class="card">
-                    <div class="card-body">
-                        <div class="mb-3">
-                            <label class="form-label">Excel Dosya Yolu</label>
-                            <input type="text" class="form-control excel-input" id="file_path" placeholder="Excel dosya yolunu girin">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Excel Sayfası</label>
-                            <input type="text" class="form-control excel-input" id="sheet_name" placeholder="Excel sayfa adını girin">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Hedef Oracle Tablosu</label>
-                            <input type="text" class="form-control excel-input" id="table_name" placeholder="Oracle tablo adını girin">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">İçe Aktarma Modu</label>
-                            <div class="form-check">
-                                <input class="form-check-input excel-input" type="radio" name="import_mode" id="append_mode" value="append" checked>
-                                <label class="form-check-label" for="append_mode">
-                                    Mevcut verilere ekle (Append)
-                                </label>
-                            </div>
-                            <div class="form-check">
-                                <input class="form-check-input excel-input" type="radio" name="import_mode" id="replace_mode" value="replace">
-                                <label class="form-check-label" for="replace_mode">
-                                    Mevcut verileri sil ve yeniden yükle (Replace)
-                                </label>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Sütun Eşleştirmeleri</label>
-                            <div id="column_mappings">
-                                <div class="mapping-row mb-2">
-                                    <div class="row">
-                                        <div class="col">
-                                            <input type="text" class="form-control excel-input mapping-excel" placeholder="Excel Sütunu">
-                                        </div>
-                                        <div class="col">
-                                            <input type="text" class="form-control excel-input mapping-oracle" placeholder="Oracle Sütunu">
-                                        </div>
-                                        <div class="col">
-                                            <select class="form-select excel-input mapping-type">
-                                                <option value="NUMBER">NUMBER</option>
-                                                <option value="VARCHAR2(255)">VARCHAR2(255)</option>
-                                                <option value="DATE">DATE</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-auto">
-                                            <button type="button" class="btn btn-danger btn-sm remove-mapping">
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <button type="button" class="btn btn-secondary btn-sm mt-2" id="add_mapping">
-                                <i class="bi bi-plus"></i> Yeni Eşleştirme Ekle
-                            </button>
-                        </div>
-                        <input type="hidden" id="default_value" name="default_value">
-                    </div>
-                </div>
-            `;
-
-                // Excel konfigürasyonunu JSON'a dönüştür
-                const excelInputs = document.querySelectorAll('.excel-input');
-                const updateExcelConfig = () => {
-                    const mappings = [];
-                    document.querySelectorAll('.mapping-row').forEach(row => {
-                        const excelCol = row.querySelector('.mapping-excel').value;
-                        const oracleCol = row.querySelector('.mapping-oracle').value;
-                        const oracleType = row.querySelector('.mapping-type').value;
-                        if (excelCol && oracleCol) {
-                            mappings.push({
-                                excel_column: excelCol,
-                                oracle_column: oracleCol,
-                                oracle_type: oracleType
-                            });
-                        }
-                    });
-
-                    const config = {
-                        file_path: document.getElementById('file_path').value,
-                        sheet_name: document.getElementById('sheet_name').value,
-                        table_name: document.getElementById('table_name').value,
-                        import_mode: document.querySelector('input[name="import_mode"]:checked').value,
-                        column_mappings: mappings
-                    };
-                    document.getElementById('default_value').value = JSON.stringify(config);
-                };
-
-                excelInputs.forEach(input => {
-                    input.addEventListener('change', updateExcelConfig);
-                });
-
-                // Yeni eşleştirme ekleme
-                document.getElementById('add_mapping').addEventListener('click', function() {
-                    const newRow = document.querySelector('.mapping-row').cloneNode(true);
-                    newRow.querySelectorAll('input, select').forEach(input => {
-                        input.value = '';
-                        input.addEventListener('change', updateExcelConfig);
-                    });
-                    newRow.querySelector('.remove-mapping').addEventListener('click', function() {
-                        newRow.remove();
-                        updateExcelConfig();
-                    });
-                    document.getElementById('column_mappings').appendChild(newRow);
-                });
-
-                // İlk satırın silme butonuna event listener ekle
-                document.querySelector('.remove-mapping').addEventListener('click', function(e) {
-                    if (document.querySelectorAll('.mapping-row').length > 1) {
-                        e.target.closest('.mapping-row').remove();
-                        updateExcelConfig();
-                    }
-                });
-
                 break;
             case 'mail_config':
                 defaultValueContainer.innerHTML = `

@@ -71,7 +71,6 @@
                             <option value="sql_script">SQL Script</option>
                             <option value="sql_procedure">SQL Prosedür</option>
                             <option value="mail">Mail</option>
-                            <option value="excel_import">Excel Import</option>
                         </select>
                         <label for="typeFilter">Adım Tipi</label>
                     </div>
@@ -142,11 +141,10 @@
                                                 class="variable-count">{{
                                                 step.variables|length }}</span>)
                                         </button>
-                                        {% if not process.is_started and step.type != 'main_step' and step.type in ['python_script', 'sql_script', 'sql_procedure', 'mail', 'excel_import'] %}
-                                        <a href="{{ url_for('new_variable', step_id=step.id) }}" class="btn btn-sm btn-outline-primary">
-                                            <i class="fas fa-plus"></i> Değişken Ekle
+                                        <a href="{{ url_for('new_variable', step_id=step.id) }}"
+                                            class="btn btn-sm btn-outline-secondary">
+                                            <i class="bi bi-plus-lg"></i> Değişken
                                         </a>
-                                        {% endif %}
                                         {% endif %}
                                     </div>
                                 </div>
@@ -614,12 +612,6 @@
         color: white;
     }
 
-    /* Excel Import badge */
-    .badge.excel-import {
-        background-color: #10b981 !important;
-        color: white;
-    }
-
     /* Main Step badge */
     .badge.main-step {
         background-color: #6366f1 !important;
@@ -949,6 +941,12 @@
                 const result = await response.json();
 
                 if (result.success) {
+                    if (result.redirect_url) {
+                        // Yönlendirme varsa, o sayfaya git
+                        window.location.href = result.redirect_url;
+                        return;
+                    }
+                    
                     if (stepType === 'mail') {
                         // Mail gönderimi başarılı olduğunda adımı beklemede olarak işaretle
                         updateStepStatus(stepId, 'waiting', 'Beklemede');
@@ -1397,8 +1395,7 @@
             'python_script': 'Python Script',
             'sql_script': 'SQL Script',
             'sql_procedure': 'SQL Prosedür',
-            'mail': 'Mail',
-            'excel_import': 'Excel Import'
+            'mail': 'Mail'
         };
         return types[type] || type;
     }

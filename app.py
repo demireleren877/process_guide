@@ -261,6 +261,22 @@ class MailReply(db.Model):
     original_subject = db.Column(db.String(255))
     is_reply = db.Column(db.Boolean, default=False)
 
+class ExcelImportConfig(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    step_id = db.Column(db.Integer, db.ForeignKey('step.id', ondelete='CASCADE'), nullable=False)
+    table_name = db.Column(db.String(100), nullable=False)
+    column_mappings = db.Column(db.Text, nullable=False)  # JSON string
+    last_file_name = db.Column(db.String(255))
+    last_sheet_name = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __init__(self, **kwargs):
+        super(ExcelImportConfig, self).__init__(**kwargs)
+        if self.created_at is None:
+            self.created_at = datetime.now()
+        self.updated_at = datetime.now()
+
 @app.route('/')
 def index():
     categories = ProcessCategory.query.all()
@@ -490,7 +506,7 @@ def execute_step(step_id):
 @app.route('/step/<int:step_id>/variables/new', methods=['GET', 'POST'])
 def new_variable(step_id):
     step = Step.query.get_or_404(step_id)    
-    if step.type == 'main_step' or step.type not in ['python_script', 'sql_script', 'sql_procedure', 'mail', 'excel_import']:
+    if step.type == 'main_step' or step.type not in ['python_script', 'sql_script', 'sql_procedure', 'mail']:
         flash('Bu adım tipine değişken eklenemez.', 'error')
         return redirect(url_for('process_detail', process_id=step.process_id))    
     if request.method == 'POST':
@@ -500,10 +516,7 @@ def new_variable(step_id):
         scope = request.form.get('scope', 'step_only')        
         if step.type == 'mail' and var_type != 'mail_config':
             flash('Mail tipi adımlarda sadece mail konfigürasyonu eklenebilir.', 'error')
-            return redirect(url_for('new_variable', step_id=step_id))
-        if step.type == 'excel_import' and var_type != 'excel_config':
-            flash('Excel import tipi adımlarda sadece excel konfigürasyonu eklenebilir.', 'error')
-            return redirect(url_for('new_variable', step_id=step_id))
+            return redirect(url_for('new_variable', step_id=step_id))        
         if name and var_type:            
             parent_variable_id = None
             if step.parent_id and scope == 'process_wide':
@@ -1449,7 +1462,11 @@ def get_responsible_steps(responsible):
 
 @app.route('/excel-import')
 def excel_import():
-    return render_template('excel_import.html')
+    step_id = request.args.get('step_id')
+    config = None
+    if step_id:
+        config = ExcelImportConfig.query.filter_by(step_id=step_id).first()
+    return render_template('excel_import.html', config=config)
 
 @app.route('/api/oracle/tables')
 def get_oracle_tables():
@@ -1643,6 +1660,7 @@ def import_excel():
         sheet_name = request.form.get('sheet_name')
         create_new_table = request.form.get('create_new_table') == 'true'
         column_mappings = json.loads(request.form.get('column_mappings', '[]'))
+        step_id = request.form.get('step_id')
         
         if not all([file, sheet_name]):
             return jsonify({'success': False, 'error': 'Tüm alanlar gerekli'})
@@ -1659,6 +1677,7 @@ def import_excel():
         connection = oracledb.connect(user=username, password=password, dsn=dsn)
         cursor = connection.cursor()
         
+        table_name = None
         if create_new_table:
             # Yeni tablo adını al
             new_table_name = request.form.get('new_table_name')
@@ -1779,6 +1798,32 @@ def import_excel():
         
         # Sütun eşleştirme bilgilerini hazırla
         column_mapping = {mapping['excel_column']: mapping['oracle_column'] for mapping in column_mappings}
+        
+        # Eğer bir adım ID'si varsa, adımı tamamlandı olarak işaretle ve konfigürasyonu kaydet
+        if step_id:
+            step = Step.query.get(step_id)
+            if step:
+                step.status = 'done'
+                step.completed_at = datetime.now()
+                
+                # Konfigürasyonu kaydet veya güncelle
+                config = ExcelImportConfig.query.filter_by(step_id=step_id).first()
+                if config:
+                    config.table_name = table_name
+                    config.column_mappings = json.dumps(column_mappings)
+                    config.last_file_name = file.filename
+                    config.last_sheet_name = sheet_name
+                else:
+                    config = ExcelImportConfig(
+                        step_id=step_id,
+                        table_name=table_name,
+                        column_mappings=json.dumps(column_mappings),
+                        last_file_name=file.filename,
+                        last_sheet_name=sheet_name
+                    )
+                    db.session.add(config)
+                
+                db.session.commit()
         
         return jsonify({
             'success': True,
