@@ -469,9 +469,22 @@ def execute_step(step_id):
         return jsonify({
             'success': False,
             'message': 'Bu adım zaten tamamlandı.'
-        })        
+        })
     
-    # Adımı çalıştır
+    if step.type == 'excel_import':
+        # Excel import değişkenlerini al
+        variables = StepVariable.query.filter_by(step_id=step_id).all()
+        variable_dict = {var.name: var.default_value for var in variables}
+        
+        # Excel import sayfasına yönlendir
+        return jsonify({
+            'success': True,
+            'redirect': True,
+            'url': url_for('excel_import'),
+            'variables': variable_dict
+        })
+    
+    # Diğer adım tipleri için mevcut işlemleri yap
     result = ProcessExecutor.execute_step(
         step.type,
         step.file_path,
@@ -481,7 +494,7 @@ def execute_step(step_id):
     
     if result['success']:
         step.status = 'done'
-        step.completed_at = datetime.now()  # Tamamlanma zamanını kaydet
+        step.completed_at = datetime.now()
         db.session.commit()
     
     return jsonify(result)
@@ -490,7 +503,7 @@ def execute_step(step_id):
 @app.route('/step/<int:step_id>/variables/new', methods=['GET', 'POST'])
 def new_variable(step_id):
     step = Step.query.get_or_404(step_id)    
-    if step.type == 'main_step' or step.type not in ['python_script', 'sql_script', 'sql_procedure', 'mail', 'excel_import']:
+    if step.type == 'main_step' or step.type not in ['python_script', 'sql_script', 'sql_procedure', 'mail']:
         flash('Bu adım tipine değişken eklenemez.', 'error')
         return redirect(url_for('process_detail', process_id=step.process_id))    
     if request.method == 'POST':
@@ -528,12 +541,10 @@ def new_variable(step_id):
     if step.parent_id:
         parent_variables = StepVariable.query.filter_by(step_id=step.parent_id).all()    
     is_mail_step = step.type == 'mail'
-    is_excel_import_step = step.type == 'excel_import'
     return render_template('new_variable.html', 
                          step=step, 
                          parent_variables=parent_variables,
-                         is_mail_step=is_mail_step,
-                         is_excel_import_step=is_excel_import_step)
+                         is_mail_step=is_mail_step)
 
 
 @app.route('/variable/<int:variable_id>/update', methods=['POST'])
@@ -1448,17 +1459,7 @@ def get_responsible_steps(responsible):
 
 @app.route('/excel-import')
 def excel_import():
-    # URL parametrelerini al
-    file_path = request.args.get('file_path')
-    sheet_name = request.args.get('sheet_name')
-    table_name = request.args.get('table_name')
-    import_mode = request.args.get('import_mode')
-    
-    return render_template('excel_import.html', 
-                         file_path=file_path,
-                         sheet_name=sheet_name,
-                         table_name=table_name,
-                         import_mode=import_mode)
+    return render_template('excel_import.html')
 
 @app.route('/api/oracle/tables')
 def get_oracle_tables():
@@ -1809,6 +1810,18 @@ def import_excel():
             'column_mapping': column_mapping
         })
     except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/step/<int:step_id>/complete', methods=['POST'])
+def complete_step(step_id):
+    try:
+        step = Step.query.get_or_404(step_id)
+        step.status = 'done'
+        step.completed_at = datetime.now()
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'success': False, 'error': str(e)})
 
 if __name__ == '__main__':

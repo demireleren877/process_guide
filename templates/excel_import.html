@@ -141,94 +141,79 @@ document.addEventListener('DOMContentLoaded', function() {
     const errorAlert = document.getElementById('errorAlert');
     const successAlert = document.getElementById('successAlert');
     const importButton = document.getElementById('importButton');
-    const filePathInput = document.getElementById('excelFilePath');
     
     let excelColumns = [];
     let oracleColumns = [];
     let columnTypes = {};
     
-    // URL parametrelerini al
+    // URL'den değişkenleri al
     const urlParams = new URLSearchParams(window.location.search);
-    const autoFilePath = urlParams.get('file_path');
-    const autoSheetName = urlParams.get('sheet_name');
-    const autoTableName = urlParams.get('table_name');
-    const autoImportMode = urlParams.get('import_mode');
+    const variables = urlParams.get('variables');
     
-    // Otomatik doldurma işlemleri
-    if (autoFilePath) {
-        // Dosya yolu modu seçili olsun
-        document.getElementById('filePathMode').checked = true;
-        document.getElementById('fileSelectMode').checked = false;
-        document.getElementById('fileSelectSection').style.display = 'none';
-        document.getElementById('filePathSection').style.display = 'block';
-        
-        // Dosya yolunu doldur
-        filePathInput.value = autoFilePath;
-        
-        // Dosya yolu değişikliğini tetikle
-        handleFileInput();
-    }
-    
-    // Sayfa seçimi için bir fonksiyon
-    function selectSheetIfAvailable() {
-        if (autoSheetName && sheetSelect.options.length > 0) {
-            for (let i = 0; i < sheetSelect.options.length; i++) {
-                if (sheetSelect.options[i].value === autoSheetName) {
-                    sheetSelect.value = autoSheetName;
-                    sheetSelect.dispatchEvent(new Event('change'));
-                    break;
-                }
-            }
-        }
-    }
-    
-    // Tablo seçimi için bir fonksiyon
-    function selectTableIfAvailable() {
-        if (autoTableName && tableSelect.options.length > 0) {
-            for (let i = 0; i < tableSelect.options.length; i++) {
-                if (tableSelect.options[i].value === autoTableName) {
-                    tableSelect.value = autoTableName;
-                    tableSelect.dispatchEvent(new Event('change'));
-                    break;
-                }
-            }
-        }
-    }
-    
-    // Import modu seçimi
-    if (autoImportMode) {
-        const modeRadio = document.querySelector(`input[name="importMode"][value="${autoImportMode}"]`);
-        if (modeRadio) {
-            modeRadio.checked = true;
-        }
-    }
-    
-    // Oracle tablolarını yükle ve tablo seçimini yap
-    fetch('/api/oracle/tables')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                tableSelect.innerHTML = '<option value="">Tablo seçin</option>' +
-                    data.tables.map(table => `<option value="${table}">${table}</option>`).join('');
-                checkImportButtonState();
+    if (variables) {
+        try {
+            const variableData = JSON.parse(decodeURIComponent(variables));
+            
+            // Dosya yolu varsa otomatik doldur
+            if (variableData.excel_file_path) {
+                // Path modunu seç
+                document.getElementById('filePathMode').checked = true;
+                document.getElementById('fileSelectMode').checked = false;
                 
-                // Tablo seçimini yap
-                selectTableIfAvailable();
-            } else {
-                showError('Tablolar yüklenirken hata oluştu: ' + data.error);
+                // Dosya yolu inputunu göster ve doldur
+                document.getElementById('fileSelectSection').style.display = 'none';
+                document.getElementById('filePathSection').style.display = 'block';
+                document.getElementById('excelFilePath').value = variableData.excel_file_path;
+                
+                // Sayfa listesini yükle
+                handleFileInput();
             }
-        })
-        .catch(error => {
-            showError('Tablolar yüklenirken hata oluştu: ' + error);
-        });
-        
-    // Sayfa yüklendiğinde sayfa seçimini kontrol et
-    const checkSheetInterval = setInterval(() => {
-        if (sheetSelect.options.length > 0) {
-            selectSheetIfAvailable();
-            clearInterval(checkSheetInterval);
+            
+            // Sayfa adı varsa, sayfa listesi yüklendikten sonra seç
+            if (variableData.excel_sheet_name) {
+                const checkSheetInterval = setInterval(() => {
+                    const sheetOption = Array.from(sheetSelect.options).find(
+                        option => option.value === variableData.excel_sheet_name
+                    );
+                    if (sheetOption) {
+                        sheetSelect.value = variableData.excel_sheet_name;
+                        sheetSelect.dispatchEvent(new Event('change'));
+                        clearInterval(checkSheetInterval);
+                    }
+                }, 500);
+                
+                // 10 saniye sonra interval'i temizle
+                setTimeout(() => clearInterval(checkSheetInterval), 10000);
+            }
+            
+            // Hedef tablo varsa, tablo listesi yüklendikten sonra seç
+            if (variableData.target_table) {
+                const checkTableInterval = setInterval(() => {
+                    const tableOption = Array.from(tableSelect.options).find(
+                        option => option.value === variableData.target_table
+                    );
+                    if (tableOption) {
+                        tableSelect.value = variableData.target_table;
+                        tableSelect.dispatchEvent(new Event('change'));
+                        clearInterval(checkTableInterval);
+                    }
+                }, 500);
+                
+                // 10 saniye sonra interval'i temizle
+                setTimeout(() => clearInterval(checkTableInterval), 10000);
+            }
+            
+            // Import modu varsa seç
+            if (variableData.import_mode) {
+                const modeInput = document.querySelector(`input[name="importMode"][value="${variableData.import_mode}"]`);
+                if (modeInput) {
+                    modeInput.checked = true;
+                }
+            }
+        } catch (error) {
+            console.error('Değişkenler yüklenirken hata oluştu:', error);
         }
-    }, 500);
+    }
     
     // Excel dosyası seçildiğinde veya dosya yolu girildiğinde
     function handleFileInput() {
@@ -632,6 +617,22 @@ document.addEventListener('DOMContentLoaded', function() {
     // Yeni tablo adı değiştiğinde buton durumunu kontrol et
     newTableNameInput.addEventListener('input', checkImportButtonState);
 
+    // Oracle tablolarını yükle
+    fetch('/api/oracle/tables')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                tableSelect.innerHTML = '<option value="">Tablo seçin</option>' +
+                    data.tables.map(table => `<option value="${table}">${table}</option>`).join('');
+                checkImportButtonState();
+            } else {
+                showError('Tablolar yüklenirken hata oluştu: ' + data.error);
+            }
+        })
+        .catch(error => {
+            showError('Tablolar yüklenirken hata oluştu: ' + error);
+        });
+    
     // Form gönderildiğinde
     form.addEventListener('submit', function(e) {
         e.preventDefault();
@@ -699,9 +700,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     oracle_type: oracleType,
                     handle_null: true // Boş hücreleri işle
                 });
-                
-                // Debug için konsola yazdır
-                console.log(`Excel: ${excelCol} -> Oracle: ${oracleCol} (${oracleType})`);
             }
         }
         
@@ -744,6 +742,26 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
                 showSuccess(message);
+                
+                // Adım durumunu güncelle
+                const urlParams = new URLSearchParams(window.location.search);
+                const stepId = urlParams.get('step_id');
+                if (stepId) {
+                    fetch(`/step/${stepId}/complete`, {
+                        method: 'POST'
+                    })
+                    .then(response => response.json())
+                    .then(result => {
+                        if (result.success) {
+                            // Ana sayfaya yönlendir
+                            window.location.href = '/';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Adım durumu güncellenirken hata:', error);
+                    });
+                }
+                
                 // Form alanlarını sıfırla
                 fileInput.value = '';
                 sheetSelect.innerHTML = '<option value="">Önce Excel dosyası seçin</option>';

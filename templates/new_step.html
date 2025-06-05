@@ -52,15 +52,15 @@
                             <label for="file_path" class="form-label">Dosya Yolu</label>
                             <input type="text" class="form-control" id="file_path" name="file_path">
                         </div>
-                        <div class="mb-3" id="excel-import-variables-container" style="display: none;">
+                        <div class="mb-3" id="excel-import-container" style="display: none;">
                             <div class="alert alert-info">
                                 <small>
                                     <i class="fas fa-info-circle"></i>
-                                    Excel import adımı için aşağıdaki değişkenleri eklemelisiniz:
+                                    Excel import için aşağıdaki değişkenleri tanımlamanız gerekiyor:
                                     <ul class="mb-0">
-                                        <li>file_path: Excel dosyasının yolu</li>
-                                        <li>sheet_name: Excel sayfasının adı</li>
-                                        <li>table_name: Hedef Oracle tablosunun adı</li>
+                                        <li>excel_file_path: Excel dosyasının tam yolu</li>
+                                        <li>excel_sheet_name: Excel sayfasının adı</li>
+                                        <li>target_table: Hedef Oracle tablo adı</li>
                                         <li>import_mode: İçe aktarma modu (append/replace)</li>
                                     </ul>
                                 </small>
@@ -87,53 +87,51 @@
 </div>
 
 <script>
-    document.getElementById('type').addEventListener('change', function() {
-        const filePathContainer = document.getElementById('file-path-container');
-        const excelImportVariablesContainer = document.getElementById('excel-import-variables-container');
-        const procedureParamsContainer = document.getElementById('procedure-params-container');
-        
-        if (this.value === 'excel_import') {
+    const typeSelect = document.getElementById('type');
+    const filePathContainer = document.getElementById('file-path-container');
+    const procedureParamsContainer = document.getElementById('procedure-params-container');
+    const excelImportContainer = document.getElementById('excel-import-container');
+
+    typeSelect.addEventListener('change', function() {
+        if (this.value === 'main_step' || this.value === 'mail') {
             filePathContainer.style.display = 'none';
-            excelImportVariablesContainer.style.display = 'block';
             procedureParamsContainer.style.display = 'none';
-        } else if (this.value === 'main_step') {
-            filePathContainer.style.display = 'none';
-            excelImportVariablesContainer.style.display = 'none';
-            procedureParamsContainer.style.display = 'none';
+            excelImportContainer.style.display = 'none';
         } else if (this.value === 'sql_procedure') {
             filePathContainer.style.display = 'block';
-            excelImportVariablesContainer.style.display = 'none';
             procedureParamsContainer.style.display = 'block';
+            excelImportContainer.style.display = 'none';
+        } else if (this.value === 'excel_import') {
+            filePathContainer.style.display = 'none';
+            procedureParamsContainer.style.display = 'none';
+            excelImportContainer.style.display = 'block';
         } else {
             filePathContainer.style.display = 'block';
-            excelImportVariablesContainer.style.display = 'none';
             procedureParamsContainer.style.display = 'none';
+            excelImportContainer.style.display = 'none';
         }
     });
 
     // Sayfa yüklendiğinde de kontrol et
     document.addEventListener('DOMContentLoaded', function() {
-        const stepType = document.getElementById('type').value;
-        const filePathContainer = document.getElementById('file-path-container');
-        const excelImportVariablesContainer = document.getElementById('excel-import-variables-container');
-        const procedureParamsContainer = document.getElementById('procedure-params-container');
+        const stepType = typeSelect.value;
         
-        if (stepType === 'excel_import') {
+        if (stepType === 'main_step' || stepType === 'mail') {
             filePathContainer.style.display = 'none';
-            excelImportVariablesContainer.style.display = 'block';
             procedureParamsContainer.style.display = 'none';
-        } else if (stepType === 'main_step') {
-            filePathContainer.style.display = 'none';
-            excelImportVariablesContainer.style.display = 'none';
-            procedureParamsContainer.style.display = 'none';
+            excelImportContainer.style.display = 'none';
         } else if (stepType === 'sql_procedure') {
             filePathContainer.style.display = 'block';
-            excelImportVariablesContainer.style.display = 'none';
             procedureParamsContainer.style.display = 'block';
+            excelImportContainer.style.display = 'none';
+        } else if (stepType === 'excel_import') {
+            filePathContainer.style.display = 'none';
+            procedureParamsContainer.style.display = 'none';
+            excelImportContainer.style.display = 'block';
         } else {
             filePathContainer.style.display = 'block';
-            excelImportVariablesContainer.style.display = 'none';
             procedureParamsContainer.style.display = 'none';
+            excelImportContainer.style.display = 'none';
         }
     });
 </script>
