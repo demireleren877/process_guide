@@ -142,10 +142,11 @@
                                                 class="variable-count">{{
                                                 step.variables|length }}</span>)
                                         </button>
-                                        <a href="{{ url_for('new_variable', step_id=step.id) }}"
-                                            class="btn btn-sm btn-outline-secondary">
-                                            <i class="bi bi-plus-lg"></i> Değişken
+                                        {% if not process.is_started and step.type != 'main_step' and step.type in ['python_script', 'sql_script', 'sql_procedure', 'mail', 'excel_import'] %}
+                                        <a href="{{ url_for('new_variable', step_id=step.id) }}" class="btn btn-sm btn-outline-primary">
+                                            <i class="fas fa-plus"></i> Değişken Ekle
                                         </a>
+                                        {% endif %}
                                         {% endif %}
                                     </div>
                                 </div>

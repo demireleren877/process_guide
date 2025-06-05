@@ -490,7 +490,7 @@ def execute_step(step_id):
 @app.route('/step/<int:step_id>/variables/new', methods=['GET', 'POST'])
 def new_variable(step_id):
     step = Step.query.get_or_404(step_id)    
-    if step.type == 'main_step' or step.type not in ['python_script', 'sql_script', 'sql_procedure', 'mail']:
+    if step.type == 'main_step' or step.type not in ['python_script', 'sql_script', 'sql_procedure', 'mail', 'excel_import']:
         flash('Bu adım tipine değişken eklenemez.', 'error')
         return redirect(url_for('process_detail', process_id=step.process_id))    
     if request.method == 'POST':
@@ -500,7 +500,10 @@ def new_variable(step_id):
         scope = request.form.get('scope', 'step_only')        
         if step.type == 'mail' and var_type != 'mail_config':
             flash('Mail tipi adımlarda sadece mail konfigürasyonu eklenebilir.', 'error')
-            return redirect(url_for('new_variable', step_id=step_id))        
+            return redirect(url_for('new_variable', step_id=step_id))
+        if step.type == 'excel_import' and var_type != 'excel_config':
+            flash('Excel import tipi adımlarda sadece excel konfigürasyonu eklenebilir.', 'error')
+            return redirect(url_for('new_variable', step_id=step_id))
         if name and var_type:            
             parent_variable_id = None
             if step.parent_id and scope == 'process_wide':
