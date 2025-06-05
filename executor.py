@@ -335,21 +335,37 @@ class ProcessExecutor:
             if not mail_configs:
                 return {
                     'success': False,
-                    'output': None,
                     'error': 'Mail konfigürasyonu bulunamadı'
                 }
             result = ProcessExecutor.send_mail(mail_configs)
-            # Her başarılı gönderim için sent_at güncelle
-            for idx, var in enumerate(variables):
-                if var.var_type == 'mail_config':
-                    try:
-                        config = json.loads(var.default_value) if var.default_value else {}
-                        if idx < len(result['results']) and result['results'][idx]['success']:
-                            config['sent_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                            var.default_value = json.dumps(config)
-                    except:
-                        continue
             return result
+        elif step_type == 'excel_import':
+            variables = kwargs.get('variables', [])
+            if not variables:
+                return {
+                    'success': False,
+                    'error': 'Excel import değişkenleri bulunamadı'
+                }
+            
+            # Değişkenleri al
+            excel_vars = {}
+            for var in variables:
+                excel_vars[var.name] = var.default_value
+            
+            # Gerekli değişkenleri kontrol et
+            required_vars = ['file_path', 'sheet_name', 'table_name', 'import_mode']
+            missing_vars = [var for var in required_vars if var not in excel_vars or not excel_vars[var]]
+            if missing_vars:
+                return {
+                    'success': False,
+                    'error': f'Eksik değişkenler: {", ".join(missing_vars)}'
+                }
+            
+            # Excel import sayfasına yönlendir
+            return {
+                'success': True,
+                'redirect': f'/excel-import?file_path={excel_vars["file_path"]}&sheet_name={excel_vars["sheet_name"]}&table_name={excel_vars["table_name"]}&import_mode={excel_vars["import_mode"]}'
+            }
         else:
             return {
                 'success': True,
