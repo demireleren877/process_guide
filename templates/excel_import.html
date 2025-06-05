@@ -146,75 +146,6 @@ document.addEventListener('DOMContentLoaded', function() {
     let oracleColumns = [];
     let columnTypes = {};
     
-    // URL'den değişkenleri al
-    const urlParams = new URLSearchParams(window.location.search);
-    const variables = urlParams.get('variables');
-    
-    if (variables) {
-        try {
-            const variableData = JSON.parse(decodeURIComponent(variables));
-            
-            // Dosya yolu varsa otomatik doldur
-            if (variableData.excel_file_path) {
-                // Path modunu seç
-                document.getElementById('filePathMode').checked = true;
-                document.getElementById('fileSelectMode').checked = false;
-                
-                // Dosya yolu inputunu göster ve doldur
-                document.getElementById('fileSelectSection').style.display = 'none';
-                document.getElementById('filePathSection').style.display = 'block';
-                document.getElementById('excelFilePath').value = variableData.excel_file_path;
-                
-                // Sayfa listesini yükle
-                handleFileInput();
-            }
-            
-            // Sayfa adı varsa, sayfa listesi yüklendikten sonra seç
-            if (variableData.excel_sheet_name) {
-                const checkSheetInterval = setInterval(() => {
-                    const sheetOption = Array.from(sheetSelect.options).find(
-                        option => option.value === variableData.excel_sheet_name
-                    );
-                    if (sheetOption) {
-                        sheetSelect.value = variableData.excel_sheet_name;
-                        sheetSelect.dispatchEvent(new Event('change'));
-                        clearInterval(checkSheetInterval);
-                    }
-                }, 500);
-                
-                // 10 saniye sonra interval'i temizle
-                setTimeout(() => clearInterval(checkSheetInterval), 10000);
-            }
-            
-            // Hedef tablo varsa, tablo listesi yüklendikten sonra seç
-            if (variableData.target_table) {
-                const checkTableInterval = setInterval(() => {
-                    const tableOption = Array.from(tableSelect.options).find(
-                        option => option.value === variableData.target_table
-                    );
-                    if (tableOption) {
-                        tableSelect.value = variableData.target_table;
-                        tableSelect.dispatchEvent(new Event('change'));
-                        clearInterval(checkTableInterval);
-                    }
-                }, 500);
-                
-                // 10 saniye sonra interval'i temizle
-                setTimeout(() => clearInterval(checkTableInterval), 10000);
-            }
-            
-            // Import modu varsa seç
-            if (variableData.import_mode) {
-                const modeInput = document.querySelector(`input[name="importMode"][value="${variableData.import_mode}"]`);
-                if (modeInput) {
-                    modeInput.checked = true;
-                }
-            }
-        } catch (error) {
-            console.error('Değişkenler yüklenirken hata oluştu:', error);
-        }
-    }
-    
     // Excel dosyası seçildiğinde veya dosya yolu girildiğinde
     function handleFileInput() {
         const fileInputMode = document.querySelector('input[name="fileInputMode"]:checked').value;
@@ -700,6 +631,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     oracle_type: oracleType,
                     handle_null: true // Boş hücreleri işle
                 });
+                
+                // Debug için konsola yazdır
+                console.log(`Excel: ${excelCol} -> Oracle: ${oracleCol} (${oracleType})`);
             }
         }
         
@@ -742,26 +676,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
                 showSuccess(message);
-                
-                // Adım durumunu güncelle
-                const urlParams = new URLSearchParams(window.location.search);
-                const stepId = urlParams.get('step_id');
-                if (stepId) {
-                    fetch(`/step/${stepId}/complete`, {
-                        method: 'POST'
-                    })
-                    .then(response => response.json())
-                    .then(result => {
-                        if (result.success) {
-                            // Ana sayfaya yönlendir
-                            window.location.href = '/';
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Adım durumu güncellenirken hata:', error);
-                    });
-                }
-                
                 // Form alanlarını sıfırla
                 fileInput.value = '';
                 sheetSelect.innerHTML = '<option value="">Önce Excel dosyası seçin</option>';

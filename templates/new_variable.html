@@ -29,24 +29,13 @@
             <form method="POST">
                 <div class="mb-3">
                     <label for="name" class="form-label">Değişken Adı</label>
-                    {% if is_excel_import_step %}
-                    <select class="form-select" id="name" name="name" required>
-                        <option value="excel_file_path">Excel Dosya Yolu</option>
-                        <option value="excel_sheet_name">Excel Sayfa Adı</option>
-                        <option value="target_table">Hedef Tablo</option>
-                        <option value="import_mode">İçe Aktarma Modu</option>
-                    </select>
-                    {% else %}
                     <input type="text" class="form-control" id="name" name="name" required>
-                    {% endif %}
                 </div>
                 <div class="mb-3">
                     <label for="var_type" class="form-label">Değişken Tipi</label>
                     <select class="form-select" id="var_type" name="var_type" required>
                         {% if is_mail_step %}
                         <option value="mail_config">Mail Konfigürasyonu</option>
-                        {% elif is_excel_import_step %}
-                        <option value="string">Metin</option>
                         {% else %}
                         <option value="string">Metin</option>
                         <option value="number">Sayı</option>
@@ -79,12 +68,32 @@
                 {% endif %}
 
                 <div class="mb-3" id="default-value-container">
+                    {% if is_mail_step %}
                     <label for="default_value" class="form-label">Varsayılan Değer</label>
-                    {% if is_excel_import_step %}
-                    <input type="text" class="form-control" id="default_value" name="default_value" 
-                           placeholder="{% if name == 'import_mode' %}append veya replace{% else %}Varsayılan değer{% endif %}">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <input type="text" class="form-control mail-input" id="mail_to" placeholder="Alıcılar (virgülle ayırın)">
+                            </div>
+                            <div class="mb-3">
+                                <input type="text" class="form-control mail-input" id="mail_cc" placeholder="CC (virgülle ayırın)">
+                            </div>
+                            <div class="mb-3">
+                                <input type="text" class="form-control mail-input" id="mail_subject" placeholder="Konu">
+                            </div>
+                            <div class="mb-3">
+                                <textarea class="form-control mail-input" id="mail_body" rows="3" placeholder="İçerik"></textarea>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input mail-input" type="checkbox" id="mail_active">
+                                <label class="form-check-label" for="mail_active">Aktif/Pasif</label>
+                            </div>
+                            <input type="hidden" id="default_value" name="default_value">
+                        </div>
+                    </div>
                     {% else %}
-                    <input type="text" class="form-control" id="default_value" name="default_value">
+                    <label for="default_value" class="form-label">Varsayılan Değer</label>
+                    <input type="text" class="form-control" id="default_value" name="default_value" placeholder="Değer girin...">
                     {% endif %}
                 </div>
 

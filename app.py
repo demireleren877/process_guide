@@ -469,22 +469,9 @@ def execute_step(step_id):
         return jsonify({
             'success': False,
             'message': 'Bu adım zaten tamamlandı.'
-        })
+        })        
     
-    if step.type == 'excel_import':
-        # Excel import değişkenlerini al
-        variables = StepVariable.query.filter_by(step_id=step_id).all()
-        variable_dict = {var.name: var.default_value for var in variables}
-        
-        # Excel import sayfasına yönlendir
-        return jsonify({
-            'success': True,
-            'redirect': True,
-            'url': url_for('excel_import'),
-            'variables': variable_dict
-        })
-    
-    # Diğer adım tipleri için mevcut işlemleri yap
+    # Adımı çalıştır
     result = ProcessExecutor.execute_step(
         step.type,
         step.file_path,
@@ -494,7 +481,7 @@ def execute_step(step_id):
     
     if result['success']:
         step.status = 'done'
-        step.completed_at = datetime.now()
+        step.completed_at = datetime.now()  # Tamamlanma zamanını kaydet
         db.session.commit()
     
     return jsonify(result)
@@ -503,7 +490,7 @@ def execute_step(step_id):
 @app.route('/step/<int:step_id>/variables/new', methods=['GET', 'POST'])
 def new_variable(step_id):
     step = Step.query.get_or_404(step_id)    
-    if step.type == 'main_step':
+    if step.type == 'main_step' or step.type not in ['python_script', 'sql_script', 'sql_procedure', 'mail']:
         flash('Bu adım tipine değişken eklenemez.', 'error')
         return redirect(url_for('process_detail', process_id=step.process_id))    
     if request.method == 'POST':
@@ -513,31 +500,38 @@ def new_variable(step_id):
         scope = request.form.get('scope', 'step_only')        
         if step.type == 'mail' and var_type != 'mail_config':
             flash('Mail tipi adımlarda sadece mail konfigürasyonu eklenebilir.', 'error')
-            return redirect(url_for('new_variable', step_id=step_id))
-        elif step.type == 'excel_import' and var_type not in ['string', 'text']:
-            flash('Excel import adımlarında sadece metin tipi değişkenler eklenebilir.', 'error')
-            return redirect(url_for('new_variable', step_id=step_id))
+            return redirect(url_for('new_variable', step_id=step_id))        
+        if name and var_type:            
+            parent_variable_id = None
+            if step.parent_id and scope == 'process_wide':
+                parent_variable_id = request.form.get('parent_variable_id')
+                if not parent_variable_id:
+                    flash('Süreç genelinde değişken için ana adımdan bir değişken seçmelisiniz.', 'error')
+                    return redirect(url_for('new_variable', step_id=step_id))
             
-        if name and var_type:
-            try:
-                variable = StepVariable(
-                    step_id=step_id,
-                    name=name,
-                    var_type=var_type,
-                    default_value=default_value,
-                    scope=scope
-                )
-                db.session.add(variable)
+            variable = StepVariable(
+                step_id=step_id,
+                name=name,
+                var_type=var_type,
+                default_value=default_value,
+                scope=scope,
+                parent_variable_id=parent_variable_id,
+                mail_status='waiting' if var_type == 'mail_config' else None
+            )
+            db.session.add(variable)
+            db.session.commit()            
+            if var_type == 'mail_config':                
+                MailReply.query.filter_by(variable_id=variable.id).delete()
                 db.session.commit()
-                flash('Değişken başarıyla eklendi', 'success')
-                return redirect(url_for('process_detail', process_id=step.process_id))
-            except Exception as e:
-                db.session.rollback()
-                flash(f'Değişken eklenirken hata oluştu: {str(e)}', 'error')
-        else:
-            flash('Değişken adı ve tipi gereklidir', 'error')
-    
-    return render_template('new_variable.html', step=step, is_mail_step=step.type == 'mail', is_excel_import_step=step.type == 'excel_import')
+            return redirect(url_for('process_detail', process_id=step.process_id))    
+    parent_variables = []
+    if step.parent_id:
+        parent_variables = StepVariable.query.filter_by(step_id=step.parent_id).all()    
+    is_mail_step = step.type == 'mail'
+    return render_template('new_variable.html', 
+                         step=step, 
+                         parent_variables=parent_variables,
+                         is_mail_step=is_mail_step)
 
 
 @app.route('/variable/<int:variable_id>/update', methods=['POST'])
@@ -1777,10 +1771,8 @@ def import_excel():
                     values.append(value)
                     columns.append(oracle_col)
             
-            # SQL sorgusu oluştur
-            placeholders = ','.join(['?' for _ in columns])
-            column_names = ','.join(f'"{col}"' for col in columns)
-            insert_query = f'INSERT INTO {table_name} ({column_names}) VALUES ({placeholders})'
+            placeholders = ','.join([':' + str(i+1) for i in range(len(columns))])
+            insert_query = f"INSERT INTO {table_name} ({','.join(f'"{col}"' for col in columns)}) VALUES ({placeholders})"
             
             try:
                 cursor.execute(insert_query, values)
@@ -1805,18 +1797,6 @@ def import_excel():
             'column_mapping': column_mapping
         })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/step/<int:step_id>/complete', methods=['POST'])
-def complete_step(step_id):
-    try:
-        step = Step.query.get_or_404(step_id)
-        step.status = 'done'
-        step.completed_at = datetime.now()
-        db.session.commit()
-        return jsonify({'success': True})
-    except Exception as e:
-        db.session.rollback()
         return jsonify({'success': False, 'error': str(e)})
 
 if __name__ == '__main__':
